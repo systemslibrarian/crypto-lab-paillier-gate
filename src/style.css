@@ -380,6 +380,15 @@ h2 {
   margin-top: 10px;
 }
 
+.scripture-footer {
+  text-align: center;
+  padding: 2rem 1rem;
+  font-size: 0.85rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  margin-top: 2rem;
+}
+
 @keyframes rise-in {
   from {
     opacity: 0;
