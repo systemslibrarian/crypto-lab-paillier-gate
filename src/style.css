@@ -5,6 +5,8 @@
   --panel: rgba(10, 24, 34, 0.82);
   --panel-strong: rgba(13, 30, 41, 0.94);
   --border: rgba(127, 183, 201, 0.2);
+  /* Form-control boundary kept >=3:1 against the panel for WCAG 1.4.11. */
+  --field-border: #5f7d8a;
   --ink: #f1f7f8;
   --muted: #a8bcc1;
   --accent: #56d5c3;
@@ -27,6 +29,7 @@ html[data-theme='light'] {
   --panel: rgba(255, 252, 247, 0.82);
   --panel-strong: rgba(255, 250, 242, 0.96);
   --border: rgba(52, 72, 78, 0.16);
+  --field-border: #6e7f83;
   --ink: #13262d;
   --muted: #55656a;
   --accent: #0f7c73;
@@ -41,7 +44,9 @@ html[data-theme='light'] {
 }
 
 html {
+  font-size: 100%;
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -76,10 +81,34 @@ textarea {
   font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
 }
 
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -60px;
+  z-index: 1100;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--panel-strong);
+  color: var(--ink);
+  border: 1px solid var(--field-border);
+  font-weight: 700;
+  text-decoration: none;
+  transition: top 160ms ease;
+}
+
+.skip-link:focus {
+  top: 8px;
+}
+
 .shell {
   width: min(1200px, calc(100vw - 32px));
   margin: 0 auto;
   padding: 32px 0 48px;
+  scroll-margin-top: 5rem;
+}
+
+.shell:focus {
+  outline: none;
 }
 
 .panel {
@@ -112,31 +141,7 @@ textarea {
   grid-template-columns: 1.6fr 1fr;
   gap: 24px;
   margin-bottom: 24px;
-  padding-right: 92px;
   animation: rise-in 420ms ease-out;
-}
-
-.theme-toggle {
-  display: grid;
-  place-items: center;
-  width: 2.6rem;
-  height: 2.6rem;
-  margin: 1rem;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--panel-strong);
-  color: var(--ink);
-  cursor: pointer;
-  line-height: 1;
-  z-index: 10;
-  transition: transform 160ms ease, background 160ms ease, color 160ms ease;
-}
-
-.theme-toggle:hover {
-  transform: translateY(-1px);
-  background: var(--bg-strong);
-  color: var(--accent);
 }
 
 .eyebrow,
@@ -147,7 +152,8 @@ textarea {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent);
+  /* Stronger accent clears 4.5:1 for this small uppercase text in both themes. */
+  color: var(--accent-strong);
 }
 
 h1,
@@ -187,8 +193,8 @@ h2 {
   align-self: start;
   padding: 20px;
   border-radius: 22px;
-  background: linear-gradient(180deg, rgba(15, 124, 115, 0.12), rgba(255, 252, 247, 0.78));
-  border: 1px solid rgba(15, 124, 115, 0.18);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-strong));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .callout p,
@@ -231,8 +237,9 @@ h2 {
 
 .progress-meta {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 16px;
+  gap: 4px 16px;
   margin-bottom: 10px;
   font-size: 0.95rem;
 }
@@ -241,7 +248,8 @@ h2 {
   height: 14px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(19, 38, 45, 0.08);
+  border: 1px solid var(--field-border);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 .progress-fill {
@@ -253,7 +261,9 @@ h2 {
 }
 
 .key-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Auto-fit so cards drop from four columns to one as the viewport narrows,
+     instead of staying multi-column and wrapping long values on phones. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
 }
 
 .workspace-grid {
@@ -284,11 +294,16 @@ h2 {
 
 .metric-card,
 .result-box,
+.command-note {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel-strong);
+}
+
 .field input,
 .field select,
-.field textarea,
-.command-note {
-  border: 1px solid rgba(19, 38, 45, 0.12);
+.field textarea {
+  border: 1px solid var(--field-border);
   border-radius: 18px;
   background: var(--panel-strong);
 }
@@ -319,7 +334,10 @@ h2 {
 .field select,
 .field textarea {
   width: 100%;
+  min-height: 44px;
   padding: 14px 16px;
+  /* 16px floor stops iOS Safari from auto-zooming when a field is focused. */
+  font-size: max(1rem, 16px);
   color: var(--ink);
   resize: vertical;
 }
@@ -330,19 +348,23 @@ h2 {
 
 .button {
   justify-self: start;
+  min-height: 44px;
   border: 0;
   border-radius: 999px;
-  padding: 13px 20px;
+  padding: 13px 22px;
   font-weight: 700;
-  color: #fffdf9;
-  background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+  /* Dark ink on the bright gradients keeps >=4.5:1 in both themes, where a
+     white label would fail against the lighter end of the gradient. */
+  color: #04211d;
+  background: linear-gradient(135deg, #56d5c3, #2bb6a4);
   box-shadow: 0 12px 28px rgba(15, 124, 115, 0.22);
   cursor: pointer;
   transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
 }
 
 .button-primary {
-  background: linear-gradient(135deg, var(--warm), #d3902e);
+  color: #2b1a04;
+  background: linear-gradient(135deg, #f5bd6e, #d3902e);
   box-shadow: 0 12px 28px rgba(201, 117, 44, 0.22);
 }
 
@@ -363,16 +385,18 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+/* Tone boxes always render on a light background in both themes, so their text
+   stays a dark ink for AA contrast regardless of the page theme. */
 .result-box[data-tone="success"] {
   border-color: rgba(13, 107, 69, 0.24);
   background: rgba(226, 244, 235, 0.92);
-  color: var(--success);
+  color: #0b5236;
 }
 
 .result-box[data-tone="error"] {
   border-color: rgba(161, 59, 44, 0.24);
   background: rgba(251, 234, 229, 0.94);
-  color: var(--error);
+  color: #872f22;
 }
 
 .command-note {
@@ -389,6 +413,11 @@ h2 {
   margin-top: 2rem;
 }
 
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 @keyframes rise-in {
   from {
     opacity: 0;
@@ -401,10 +430,23 @@ h2 {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
 @media (max-width: 960px) {
   .masthead,
   .workspace-grid,
-  .key-grid,
   .section-heading,
   .control-row {
     grid-template-columns: 1fr;
@@ -431,8 +473,22 @@ h2 {
     font-size: 2.8rem;
   }
 
+  .compact-field {
+    max-width: none;
+  }
+
   .button {
     width: 100%;
     justify-self: stretch;
+  }
+}
+
+@media (max-width: 460px) {
+  h1 {
+    font-size: 2.3rem;
+  }
+
+  .lede {
+    font-size: 1.02rem;
   }
 }

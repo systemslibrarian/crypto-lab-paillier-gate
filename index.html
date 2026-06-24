@@ -10,8 +10,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>crypto-lab-paillier-gate</title>
+    <style>
+      /* Critical skip-link rule so it stays off-screen until focused even
+         before the bundled stylesheet loads. */
+      .skip-link {
+        position: absolute;
+        left: 8px;
+        top: -60px;
+        z-index: 1100;
+      }
+      .skip-link:focus {
+        top: 8px;
+      }
+    </style>
   </head>
   <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
 <!-- BEGIN crypto-lab shared header — managed; edit shared-header.html + re-run reapply-header.py
      Identical on every lab. Self-contained styles. Accents use each demo's own
      --accent CSS variable (teal #35d6bb fallback). The ONLY per-repo value is the

@@ -37,15 +37,8 @@ if (!app) {
 }
 
 app.innerHTML = `
-  <main class="shell">
+  <main class="shell" id="main" tabindex="-1">
     <header class="masthead panel panel-wide">
-      <button
-        id="theme-toggle"
-        class="theme-toggle"
-        type="button"
-        aria-label="Switch to light mode"
-        style="position: absolute; top: 0; right: 0"
-      >🌙</button>
       <div>
         <p class="eyebrow">crypto-lab / browser demo</p>
         <h1>Paillier Gate</h1>
@@ -86,10 +79,18 @@ app.innerHTML = `
 
       <div class="progress-block">
         <div class="progress-meta">
-          <span id="key-status">No keypair loaded.</span>
+          <span id="key-status" role="status" aria-live="polite">No keypair loaded.</span>
           <span id="key-percent">0%</span>
         </div>
-        <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+        <div
+          class="progress-track"
+          role="progressbar"
+          aria-labelledby="key-status"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+          id="progress-track"
+        ><div id="progress-fill" class="progress-fill"></div></div>
       </div>
 
       <div class="key-grid">
@@ -149,7 +150,7 @@ app.innerHTML = `
           <button class="button" type="submit">Decrypt ciphertext</button>
         </form>
 
-        <div id="decrypt-result" class="result-box">Generate a keypair first.</div>
+        <div id="decrypt-result" class="result-box" role="status" aria-live="polite">Generate a keypair first.</div>
       </article>
 
       <article class="panel">
@@ -158,7 +159,7 @@ app.innerHTML = `
             <p class="section-kicker">Step 3</p>
             <h2>Homomorphic addition</h2>
           </div>
-          <p class="section-copy">Encrypt two messages, multiply their ciphertexts modulo $N^2$, then decrypt the result.</p>
+          <p class="section-copy">Encrypt two messages, multiply their ciphertexts modulo N², then decrypt the result.</p>
         </div>
 
         <form id="sum-form" class="stack-form">
@@ -180,7 +181,7 @@ app.innerHTML = `
           </label>
         </div>
 
-        <div id="sum-result" class="result-box">The decrypted result will appear here.</div>
+        <div id="sum-result" class="result-box" role="status" aria-live="polite">The decrypted result will appear here.</div>
       </article>
 
       <article class="panel">
@@ -204,7 +205,7 @@ app.innerHTML = `
           <button class="button" type="submit">Aggregate encrypted counts</button>
         </form>
 
-        <div id="aggregation-result" class="result-box">The encrypted total and weighted total will appear here.</div>
+        <div id="aggregation-result" class="result-box" role="status" aria-live="polite">The encrypted total and weighted total will appear here.</div>
       </article>
 
       <article class="panel">
@@ -224,7 +225,7 @@ app.innerHTML = `
           <button class="button" type="submit">Tally encrypted votes</button>
         </form>
 
-        <div id="election-result" class="result-box">The encrypted tally will appear here.</div>
+        <div id="election-result" class="result-box" role="status" aria-live="polite">The encrypted tally will appear here.</div>
       </article>
     </section>
 
@@ -317,38 +318,13 @@ function setResultBox(element: HTMLElement, html: string, tone: 'neutral' | 'suc
   element.innerHTML = html;
 }
 
-function setupThemeToggle(): void {
-  const root = document.documentElement;
-  const themeToggle = byId<HTMLButtonElement>('theme-toggle');
-
-  const currentTheme = (): 'dark' | 'light' => {
-    return root.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-  };
-
-  const syncToggle = (theme: 'dark' | 'light'): void => {
-    themeToggle.textContent = theme === 'dark' ? '🌙' : '☀️';
-    themeToggle.setAttribute(
-      'aria-label',
-      theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
-    );
-  };
-
-  syncToggle(currentTheme());
-
-  themeToggle.addEventListener('click', () => {
-    const nextTheme = currentTheme() === 'dark' ? 'light' : 'dark';
-    root.setAttribute('data-theme', nextTheme);
-    localStorage.setItem('theme', nextTheme);
-    syncToggle(nextTheme);
-  });
-}
-
 const keyForm = byId<HTMLFormElement>('key-form');
 const bitLengthSelect = byId<HTMLSelectElement>('bit-length');
 const generateButton = byId<HTMLButtonElement>('generate-key');
 const keyStatus = byId<HTMLSpanElement>('key-status');
 const keyPercent = byId<HTMLSpanElement>('key-percent');
 const progressFill = byId<HTMLDivElement>('progress-fill');
+const progressTrack = byId<HTMLDivElement>('progress-track');
 const metricBits = byId<HTMLElement>('metric-bits');
 const metricN = byId<HTMLElement>('metric-n');
 const metricG = byId<HTMLElement>('metric-g');
@@ -374,7 +350,7 @@ const votesInput = byId<HTMLTextAreaElement>('votes-input');
 const electionResult = byId<HTMLDivElement>('election-result');
 
 const requiresKeyControls = Array.from(
-  document.querySelectorAll<HTMLButtonElement>('button:not(#generate-key)'),
+  app.querySelectorAll<HTMLButtonElement>('button:not(#generate-key)'),
 );
 
 const keygenWorker = new Worker(new URL('./keygen.worker.ts', import.meta.url), { type: 'module' });
@@ -384,6 +360,8 @@ let isGenerating = false;
 
 function updateControlState(): void {
   generateButton.disabled = isGenerating;
+  generateButton.setAttribute('aria-busy', String(isGenerating));
+  progressTrack.setAttribute('aria-busy', String(isGenerating));
 
   for (const control of requiresKeyControls) {
     control.disabled = !activeKeyPair || isGenerating;
@@ -391,9 +369,11 @@ function updateControlState(): void {
 }
 
 function setProgress(stage: string, percent: number): void {
+  const clamped = Math.max(0, Math.min(100, percent));
   keyStatus.textContent = stage;
-  keyPercent.textContent = `${Math.max(0, Math.min(100, Math.round(percent)))}%`;
-  progressFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  keyPercent.textContent = `${Math.round(clamped)}%`;
+  progressFill.style.width = `${clamped}%`;
+  progressTrack.setAttribute('aria-valuenow', `${Math.round(clamped)}`);
 }
 
 function renderKeyPair(keyPair: PaillierKeyPair): void {
@@ -594,4 +574,3 @@ electionForm.addEventListener('submit', (event) => {
 });
 
 updateControlState();
-setupThemeToggle();
