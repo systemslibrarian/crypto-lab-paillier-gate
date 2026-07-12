@@ -40,13 +40,14 @@ app.innerHTML = `
   <main class="shell" id="main" tabindex="-1">
     <header class="cl-hero">
       <div class="cl-hero-main">
-        <h1 class="cl-hero-title">Paillier Gate</h1>
-        <p class="cl-hero-sub">additively-homomorphic public-key encryption</p>
+        <h1 class="cl-hero-title">Paillier</h1>
+        <p class="cl-hero-sub">Additively Homomorphic · Public-Key Encryption</p>
+        <p class="cl-hero-desc">Generate a keypair, encrypt separate numbers, then add and scale those ciphertexts so decrypting only the combined result reveals the final sum.</p>
       </div>
       <aside class="cl-hero-why" aria-label="Why it matters">
         <span class="cl-hero-why-label">WHY IT MATTERS</span>
         <p class="cl-hero-why-text">
-          Paillier lets you add and scale numbers while they stay encrypted — an aggregator can combine private inputs it can never read. Only the final sum is revealed when someone with the key decrypts it.
+          It lets an aggregator tally private inputs it can never read: the raw values stay sealed and only the total comes out. That powers privacy-preserving voting, analytics, and billing where individual numbers must stay secret.
         </p>
       </aside>
     </header>
