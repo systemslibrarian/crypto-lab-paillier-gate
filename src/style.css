@@ -404,6 +404,290 @@ h2 {
   margin-top: 10px;
 }
 
+/* One-line plain-language gloss under each key metric value. */
+.metric-gloss {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* Inline caption next to a field label (e.g. what the randomizer r is for). */
+.field-note {
+  display: block;
+  font-weight: 400;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+
+.field span .field-note {
+  margin-top: 4px;
+}
+
+/* Collapsible "What's happening" panel pulled from the README. */
+.explainer {
+  margin-top: 20px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel-strong);
+  overflow: hidden;
+}
+
+.explainer summary {
+  cursor: pointer;
+  padding: 16px 18px;
+  font-weight: 700;
+  color: var(--ink);
+  list-style: none;
+}
+
+.explainer summary::-webkit-details-marker {
+  display: none;
+}
+
+.explainer summary::before {
+  content: "▸ ";
+  color: var(--accent-strong);
+}
+
+.explainer[open] summary::before {
+  content: "▾ ";
+}
+
+.explainer-body {
+  padding: 0 18px 18px;
+}
+
+.explainer-body p {
+  margin: 0 0 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.explainer-body p:last-child {
+  margin-bottom: 0;
+}
+
+.explainer-body code {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  padding: 1px 5px;
+  border-radius: 6px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Secondary/ghost button — outlined, still AA against the panel. */
+.button-ghost {
+  color: var(--accent-strong);
+  background: transparent;
+  border: 1px solid var(--field-border);
+  box-shadow: none;
+}
+
+.button-ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Inline text-style button (e.g. "Clear slots"). */
+.link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--accent-strong);
+  text-decoration: underline;
+  cursor: pointer;
+  min-height: 0;
+}
+
+/* Locked A/B input when the learner hands a real ciphertext into a slot. */
+.slot-locked {
+  border-style: dashed !important;
+  border-color: var(--accent-strong) !important;
+  color: var(--muted) !important;
+}
+
+/* Semantic-security stack: same message, visibly different ciphertexts. */
+.semantic-demo,
+.handoff,
+.ledger-insight {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));
+}
+
+.semantic-demo-title {
+  margin: 0 0 6px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.semantic-demo-copy {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.semantic-demo-copy code,
+.ledger-insight code {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  padding: 1px 5px;
+  border-radius: 6px;
+}
+
+.semantic-list {
+  margin: 0;
+  padding-left: 1.4rem;
+  display: grid;
+  gap: 10px;
+}
+
+.semantic-ct {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-strong);
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  max-height: 4.6em;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.handoff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.handoff-note {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* Homomorphic-addition ledger: Enc(A) × Enc(B) mod N² = product → decrypt. */
+.ledger {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel-strong);
+}
+
+.ledger-cap {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.ledger-tag {
+  display: inline-block;
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
+.ledger-tag-product {
+  color: var(--warm-strong, var(--accent-strong));
+}
+
+.ledger-val {
+  padding: 10px 12px;
+  border: 1px solid var(--field-border);
+  border-radius: 12px;
+  background: var(--bg-strong);
+  color: var(--ink);
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  max-height: 5.2em;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.ledger-term-product .ledger-val {
+  border-color: var(--accent-strong);
+  border-width: 2px;
+}
+
+.ledger-op {
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--accent-strong);
+  line-height: 1;
+}
+
+.ledger-op-sub {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.ledger-arrow {
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent-strong);
+}
+
+.ledger-decrypt {
+  padding: 12px 14px;
+  text-align: center;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
+  background: color-mix(in srgb, var(--success) 12%, var(--panel-strong));
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.ledger-decrypt .ledger-wrong {
+  color: var(--error);
+}
+
+.ledger-decrypt-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.ledger-insight p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.ledger-insight strong {
+  color: var(--ink);
+}
+
+.insight-bad {
+  color: var(--error) !important;
+  background: color-mix(in srgb, var(--error) 12%, transparent) !important;
+}
+
 .scripture-footer {
   text-align: center;
   padding: 2rem 1rem;

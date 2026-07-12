@@ -41,11 +41,27 @@ async function driveDemo(page: Page): Promise<void> {
   await page.locator('#encrypt-form button[type="submit"]').click();
   await expect(page.locator('#ciphertext-output')).not.toHaveValue('');
 
+  // Exercise the "same message, different ciphertext" semantic-security stack so
+  // its dynamically-added rows get scanned.
+  await page.locator('#encrypt-again').click();
+  await expect(page.locator('#semantic-list li')).toHaveCount(2);
+
+  // Hand the learner's own ciphertext into Step 3 slot A.
+  await page.locator('#add-to-ledger').click();
+
   await page.locator('#decrypt-form button[type="submit"]').click();
   await expect(page.locator('#decrypt-result')).toContainText('Decrypted value');
 
   await page.locator('#sum-form button[type="submit"]').click();
-  await expect(page.locator('#sum-result')).toContainText('Plaintext sum');
+  await expect(page.locator('#sum-result')).toContainText('decrypts to');
+  // The homomorphic-addition ledger and multiply->add insight are now visible.
+  await expect(page.locator('#sum-ledger')).toBeVisible();
+  await expect(page.locator('#sum-insight')).toBeVisible();
+
+  // Trigger the overflow demonstration so its error-tone result region is scanned.
+  await page.locator('#overflow-preset').click();
+  await page.locator('#sum-form button[type="submit"]').click();
+  await expect(page.locator('#sum-result')).toContainText('overflow');
 
   await page.locator('#aggregation-form button[type="submit"]').click();
   await expect(page.locator('#aggregation-result')).toContainText('aggregate total');

@@ -17,6 +17,14 @@ crypto-lab-paillier-gate is a browser demo of the Paillier additive homomorphic 
 
 The demo lets you generate a Paillier keypair, encrypt and decrypt messages, compute an encrypted sum, and run private aggregation and encrypted election tally scenarios in the browser. It explicitly supports both encrypt and decrypt flows, along with a key-size selector for generation and text controls for plaintexts, counts, weights, and votes.
 
+To make the homomorphic "magic" observable rather than asserted, the demo also includes:
+
+- A **homomorphic-addition ledger** in Step 3 that shows the full `Enc(A)`, `Enc(B)`, and product ciphertexts with a literal `× (mod N²)` operator and a `decrypt →` arrow to `A + B`, plus an inline callout proving the product is *not* the integer sum of the two ciphertexts (that value decrypts to garbage) — ciphertext multiplication is what maps to plaintext addition.
+- A **ciphertext hand-off**: encrypt a value in Step 2 and send that exact ciphertext into Step 3 so you combine data you personally encrypted, instead of the demo re-encrypting behind the scenes.
+- A **"same message, different ciphertext"** stack (an *Encrypt again* button) that visualizes semantic security: identical plaintexts yield visibly different ciphertexts that all decrypt to the same value.
+- An **interactive modulus-overflow preset** that forces an encrypted sum past `N` so you can watch decryption silently wrap to the wrong value, with a callout explaining the plaintext-space bound.
+- **Plain-language glosses** on the `N`, `g`, and `λ` metric cards and a collapsible *What's happening under the hood* panel carrying the key-generation and encryption math onto the page.
+
 ## What Can Go Wrong
 
 - The implementation uses small educational key sizes and does not constant-time its modular arithmetic, so its modular exponentiation can leak secrets through timing or other side channels.

@@ -97,20 +97,48 @@ app.innerHTML = `
         <article class="metric-card">
           <span class="metric-label">Modulus bits</span>
           <strong id="metric-bits">-</strong>
+          <span class="metric-gloss">size of N in bits — bigger is harder to factor</span>
         </article>
         <article class="metric-card">
           <span class="metric-label">Public modulus N</span>
           <code id="metric-n">Generate a keypair to populate this field.</code>
+          <span class="metric-gloss">public modulus N = p·q — shared freely, hides the two secret primes</span>
         </article>
         <article class="metric-card">
           <span class="metric-label">Generator g</span>
           <code id="metric-g">-</code>
+          <span class="metric-gloss">generator, fixed to N+1 — makes gᵐ = 1 + mN mod N², so the exponent m is recoverable</span>
         </article>
         <article class="metric-card">
           <span class="metric-label">Private λ</span>
           <code id="metric-lambda">-</code>
+          <span class="metric-gloss">private trapdoor λ = lcm(p−1, q−1) — the secret that unlocks decryption</span>
         </article>
       </div>
+
+      <details class="explainer">
+        <summary>What's happening under the hood</summary>
+        <div class="explainer-body">
+          <p>
+            Paillier rests on the <em>decisional composite residuosity</em> assumption. Key generation picks two primes
+            <code>p</code> and <code>q</code>, forms the modulus <code>N = p·q</code>, and fixes the generator
+            <code>g = N + 1</code>.
+          </p>
+          <p>
+            A plaintext <code>m</code> is encrypted as <code>c = gᵐ · rᴺ mod N²</code> using fresh randomness
+            <code>r</code>, so the same message yields a different ciphertext every time (that is the
+            <strong>semantic security</strong> you will see in Step 2). Decryption recovers <code>m</code> with the
+            private values <code>λ = lcm(p−1, q−1)</code> and <code>μ = λ⁻¹ mod N</code> via
+            <code>m = L(c^λ mod N²) · μ mod N</code>, where <code>L(x) = (x − 1) / N</code>.
+          </p>
+          <p>
+            The scheme is <strong>additively homomorphic</strong>: multiplying two ciphertexts modulo <code>N²</code>
+            decrypts to the <em>sum</em> of their plaintexts, and raising a ciphertext to a scalar power decrypts to the
+            scaled plaintext. Those two facts power Step 3 and both scenarios below. The catch: the plaintext sum must
+            stay below <code>N</code>, or it wraps (Step 3 lets you trigger that on purpose).
+          </p>
+        </div>
+      </details>
     </section>
 
     <section class="workspace-grid">
@@ -128,18 +156,36 @@ app.innerHTML = `
             <span>Plaintext message</span>
             <input id="plaintext-input" inputmode="numeric" value="42" />
           </label>
-          <button class="button" type="submit">Encrypt message</button>
+          <div class="button-row">
+            <button class="button" type="submit">Encrypt message</button>
+            <button id="encrypt-again" class="button button-ghost" type="button" disabled>Encrypt again (same m)</button>
+          </div>
         </form>
 
         <div class="output-stack">
           <label class="field">
-            <span>Ciphertext</span>
+            <span>Ciphertext c = gᵐ · rᴺ mod N²</span>
             <textarea id="ciphertext-output" readonly rows="4"></textarea>
           </label>
           <label class="field">
-            <span>Randomizer r</span>
+            <span>Randomizer r <span class="field-note">— the fresh random value that makes this ciphertext unique; raised to the Nth power inside c</span></span>
             <textarea id="randomizer-output" readonly rows="2"></textarea>
           </label>
+        </div>
+
+        <div class="semantic-demo" id="semantic-demo" hidden>
+          <p class="semantic-demo-title">Same message, different ciphertexts</p>
+          <p class="semantic-demo-copy">
+            Press <em>Encrypt again</em> to stack more encryptions of the identical plaintext. The ciphertexts differ
+            completely, yet every one decrypts back to the same <code id="semantic-plaintext">m</code>. That visible gap
+            between identical input and different output <em>is</em> semantic security.
+          </p>
+          <ol id="semantic-list" class="semantic-list" aria-label="Ciphertexts of the same plaintext"></ol>
+        </div>
+
+        <div class="handoff" id="encrypt-handoff" hidden>
+          <button id="add-to-ledger" class="button button-ghost" type="button">Send this ciphertext to Step 3 →</button>
+          <span class="handoff-note" id="handoff-note"></span>
         </div>
 
         <form id="decrypt-form" class="stack-form">
@@ -159,7 +205,7 @@ app.innerHTML = `
             <p class="section-kicker">Step 3</p>
             <h2>Homomorphic addition</h2>
           </div>
-          <p class="section-copy">Encrypt two messages, multiply their ciphertexts modulo N², then decrypt the result.</p>
+          <p class="section-copy">Multiply two ciphertexts modulo N². The product is a brand-new ciphertext that decrypts to A + B — you never touched the plaintexts.</p>
         </div>
 
         <form id="sum-form" class="stack-form">
@@ -171,14 +217,37 @@ app.innerHTML = `
             <span>Message B</span>
             <input id="sum-b" inputmode="numeric" value="30" />
           </label>
-          <button class="button" type="submit">Compute encrypted sum</button>
+          <div class="button-row">
+            <button class="button" type="submit">Encrypt A, B and multiply</button>
+            <button id="overflow-preset" class="button button-ghost" type="button" disabled>Load overflow preset</button>
+          </div>
+          <p class="field-note" id="sum-source-note">Tip: in Step 2, hit <em>Send this ciphertext to Step 3</em> to add a ciphertext you made yourself into slot A or B.</p>
         </form>
 
-        <div class="output-stack">
-          <label class="field">
-            <span>Encrypted sum</span>
-            <textarea id="sum-ciphertext" readonly rows="4"></textarea>
-          </label>
+        <div class="ledger" id="sum-ledger" hidden>
+          <div class="ledger-term">
+            <p class="ledger-cap"><span class="ledger-tag">Enc(A)</span> <span id="ledger-a-plain"></span></p>
+            <div class="ledger-val" id="ledger-a" tabindex="0" role="region" aria-label="Ciphertext of message A"></div>
+          </div>
+          <div class="ledger-op" aria-hidden="true">×<span class="ledger-op-sub">mod N²</span></div>
+          <div class="ledger-term">
+            <p class="ledger-cap"><span class="ledger-tag">Enc(B)</span> <span id="ledger-b-plain"></span></p>
+            <div class="ledger-val" id="ledger-b" tabindex="0" role="region" aria-label="Ciphertext of message B"></div>
+          </div>
+          <div class="ledger-op" aria-hidden="true">=</div>
+          <div class="ledger-term ledger-term-product">
+            <p class="ledger-cap"><span class="ledger-tag ledger-tag-product">product ciphertext</span></p>
+            <div class="ledger-val" id="ledger-product" tabindex="0" role="region" aria-label="Product ciphertext, Enc(A) times Enc(B) mod N squared"></div>
+          </div>
+          <div class="ledger-arrow" aria-hidden="true">decrypt →</div>
+          <div class="ledger-decrypt" id="ledger-decrypt"></div>
+        </div>
+
+        <div class="ledger-insight" id="sum-insight" hidden>
+          <p><strong>The multiply → add mapping.</strong> The product ciphertext above is <em>not</em>
+          <code id="insight-catraw">Enc(A) + Enc(B)</code> — adding the two ciphertexts as plain integers gives
+          <code id="insight-badsum" class="insight-bad"></code>, which decrypts to garbage. Only their
+          <em>product mod N²</em> decrypts to A + B. Ciphertext multiplication is what maps to plaintext addition.</p>
         </div>
 
         <div id="sum-result" class="result-box" role="status" aria-live="polite">The decrypted result will appear here.</div>
@@ -333,13 +402,30 @@ const plaintextInput = byId<HTMLInputElement>('plaintext-input');
 const ciphertextOutput = byId<HTMLTextAreaElement>('ciphertext-output');
 const randomizerOutput = byId<HTMLTextAreaElement>('randomizer-output');
 const encryptForm = byId<HTMLFormElement>('encrypt-form');
+const encryptAgainButton = byId<HTMLButtonElement>('encrypt-again');
+const semanticDemo = byId<HTMLDivElement>('semantic-demo');
+const semanticPlaintext = byId<HTMLElement>('semantic-plaintext');
+const semanticList = byId<HTMLOListElement>('semantic-list');
+const encryptHandoff = byId<HTMLDivElement>('encrypt-handoff');
+const addToLedgerButton = byId<HTMLButtonElement>('add-to-ledger');
+const handoffNote = byId<HTMLSpanElement>('handoff-note');
 const decryptForm = byId<HTMLFormElement>('decrypt-form');
 const decryptInput = byId<HTMLTextAreaElement>('decrypt-input');
 const decryptResult = byId<HTMLDivElement>('decrypt-result');
 const sumForm = byId<HTMLFormElement>('sum-form');
 const sumAInput = byId<HTMLInputElement>('sum-a');
 const sumBInput = byId<HTMLInputElement>('sum-b');
-const sumCiphertext = byId<HTMLTextAreaElement>('sum-ciphertext');
+const overflowPresetButton = byId<HTMLButtonElement>('overflow-preset');
+const sumSourceNote = byId<HTMLParagraphElement>('sum-source-note');
+const sumLedger = byId<HTMLDivElement>('sum-ledger');
+const ledgerAPlain = byId<HTMLElement>('ledger-a-plain');
+const ledgerBPlain = byId<HTMLElement>('ledger-b-plain');
+const ledgerA = byId<HTMLDivElement>('ledger-a');
+const ledgerB = byId<HTMLDivElement>('ledger-b');
+const ledgerProduct = byId<HTMLDivElement>('ledger-product');
+const ledgerDecrypt = byId<HTMLDivElement>('ledger-decrypt');
+const sumInsight = byId<HTMLDivElement>('sum-insight');
+const insightBadSum = byId<HTMLElement>('insight-badsum');
 const sumResult = byId<HTMLDivElement>('sum-result');
 const aggregationForm = byId<HTMLFormElement>('aggregation-form');
 const countsInput = byId<HTMLTextAreaElement>('counts-input');
@@ -358,6 +444,18 @@ const keygenWorker = new Worker(new URL('./keygen.worker.ts', import.meta.url), 
 let activeKeyPair: PaillierKeyPair | null = null;
 let isGenerating = false;
 
+// The most recent single-message ciphertext the learner produced in Step 2,
+// plus the message it encrypts. This is what the "send to Step 3" hand-off
+// pushes into a slot so the learner combines a ciphertext they made rather than
+// one the demo re-encrypts behind their back.
+let lastEncryption: { message: bigint; ciphertext: bigint } | null = null;
+let semanticMessage: bigint | null = null;
+
+// Ciphertexts sitting in Step 3's A/B slots. `null` means "encrypt this input
+// fresh on submit"; a bigint means "reuse this exact ciphertext the learner
+// handed off from Step 2."
+const suppliedCiphertext: { a: bigint | null; b: bigint | null } = { a: null, b: null };
+
 function updateControlState(): void {
   generateButton.disabled = isGenerating;
   generateButton.setAttribute('aria-busy', String(isGenerating));
@@ -366,6 +464,9 @@ function updateControlState(): void {
   for (const control of requiresKeyControls) {
     control.disabled = !activeKeyPair || isGenerating;
   }
+
+  // "Encrypt again" also needs a prior encryption to repeat.
+  encryptAgainButton.disabled = !activeKeyPair || isGenerating || semanticMessage === null;
 }
 
 function setProgress(stage: string, percent: number): void {
@@ -407,7 +508,11 @@ keygenWorker.addEventListener('message', (event: MessageEvent<WorkerMessage>) =>
     renderKeyPair(message.keyPair);
     setProgress('Keypair ready. The playground is unlocked.', 100);
     setResultBox(decryptResult, 'Paste any ciphertext from this page into the decrypt box, then decode it here.', 'success');
-    setResultBox(sumResult, 'Encrypt two messages and compare the decrypted total with the plaintext sum.', 'success');
+    setResultBox(sumResult, 'Multiply two ciphertexts and compare the decrypted product with the plaintext sum.', 'success');
+    // A fresh keypair invalidates every ciphertext on the page.
+    resetSemanticDemo();
+    resetHandoff();
+    resetLedger();
     setResultBox(aggregationResult, 'Run a hospital-style aggregation or weighted total with the new keypair.', 'success');
     setResultBox(electionResult, 'Run an encrypted binary vote tally with the new keypair.', 'success');
     updateControlState();
@@ -438,7 +543,9 @@ keyForm.addEventListener('submit', (event) => {
   ciphertextOutput.value = '';
   randomizerOutput.value = '';
   decryptInput.value = '';
-  sumCiphertext.value = '';
+  resetSemanticDemo();
+  resetHandoff();
+  resetLedger();
   setProgress('Dispatching key generation worker...', 2);
 
   const request: GenerateRequest = {
@@ -449,26 +556,132 @@ keyForm.addEventListener('submit', (event) => {
   keygenWorker.postMessage(request);
 });
 
+function resetSemanticDemo(): void {
+  semanticMessage = null;
+  semanticList.innerHTML = '';
+  semanticDemo.hidden = true;
+}
+
+function resetHandoff(): void {
+  lastEncryption = null;
+  encryptHandoff.hidden = true;
+  handoffNote.textContent = '';
+}
+
+// Append one ciphertext row to the "same message, different ciphertext" stack.
+function addSemanticRow(ciphertext: bigint): void {
+  const item = document.createElement('li');
+  const code = document.createElement('code');
+  code.className = 'semantic-ct';
+  code.tabIndex = 0;
+  code.setAttribute('role', 'region');
+  code.setAttribute('aria-label', `Ciphertext ${semanticList.children.length + 1} of the same plaintext`);
+  code.textContent = ciphertext.toString();
+  item.appendChild(code);
+  semanticList.appendChild(item);
+}
+
+function doEncrypt(message: bigint, isRepeat: boolean): void {
+  const keyPair = requireKeyPair();
+  const encrypted = encrypt(message, keyPair.publicKey);
+
+  ciphertextOutput.value = encrypted.ciphertext.toString();
+  randomizerOutput.value = encrypted.r.toString();
+  decryptInput.value = encrypted.ciphertext.toString();
+
+  // Track the freshest single-message ciphertext for the Step 3 hand-off.
+  lastEncryption = { message, ciphertext: encrypted.ciphertext };
+  encryptHandoff.hidden = false;
+  handoffNote.textContent = `Ready to hand off Enc(${message.toString()}).`;
+
+  // Maintain the semantic-security stack. Changing the message starts a new one.
+  if (!isRepeat || semanticMessage !== message) {
+    semanticMessage = message;
+    semanticList.innerHTML = '';
+  }
+  semanticPlaintext.textContent = message.toString();
+  addSemanticRow(encrypted.ciphertext);
+  semanticDemo.hidden = false;
+
+  const count = semanticList.children.length;
+  setResultBox(
+    decryptResult,
+    `Ciphertext generated for plaintext <strong>${message.toString()}</strong>. `
+      + (count > 1
+        ? `You now have <strong>${count}</strong> different ciphertexts of the same message stacked below — all decrypt to ${message.toString()}.`
+        : 'Decrypt it below, or press <em>Encrypt again</em> to watch fresh randomness produce a different ciphertext.'),
+    'success',
+  );
+  updateControlState();
+}
+
 encryptForm.addEventListener('submit', (event) => {
   event.preventDefault();
 
   try {
-    const keyPair = requireKeyPair();
     const message = parseNonNegativeBigInt(plaintextInput.value, 'Plaintext');
-    const encrypted = encrypt(message, keyPair.publicKey);
-
-    ciphertextOutput.value = encrypted.ciphertext.toString();
-    randomizerOutput.value = encrypted.r.toString();
-    decryptInput.value = encrypted.ciphertext.toString();
-    setResultBox(
-      decryptResult,
-      `Ciphertext generated for plaintext <strong>${message.toString()}</strong>. Decrypt it below or re-encrypt the same message to observe fresh randomness.`,
-      'success',
-    );
+    doEncrypt(message, false);
   } catch (error) {
     setResultBox(decryptResult, error instanceof Error ? error.message : 'Encryption failed.', 'error');
   }
 });
+
+encryptAgainButton.addEventListener('click', () => {
+  if (semanticMessage === null) {
+    return;
+  }
+
+  try {
+    doEncrypt(semanticMessage, true);
+  } catch (error) {
+    setResultBox(decryptResult, error instanceof Error ? error.message : 'Encryption failed.', 'error');
+  }
+});
+
+// Hand the learner's own ciphertext to Step 3. Fills slot A first, then B, so
+// two consecutive hand-offs populate both operands the learner created.
+addToLedgerButton.addEventListener('click', () => {
+  if (!lastEncryption) {
+    return;
+  }
+
+  const slot: 'a' | 'b' = suppliedCiphertext.a === null ? 'a' : 'b';
+  suppliedCiphertext[slot] = lastEncryption.ciphertext;
+
+  if (slot === 'a') {
+    sumAInput.value = lastEncryption.message.toString();
+    sumAInput.readOnly = true;
+    sumAInput.classList.add('slot-locked');
+  } else {
+    sumBInput.value = lastEncryption.message.toString();
+    sumBInput.readOnly = true;
+    sumBInput.classList.add('slot-locked');
+  }
+
+  const filled: string[] = [];
+  if (suppliedCiphertext.a !== null) filled.push('A');
+  if (suppliedCiphertext.b !== null) filled.push('B');
+  sumSourceNote.innerHTML = `Slot ${filled.join(' and ')} now hold${filled.length > 1 ? '' : 's'} `
+    + `a ciphertext <strong>you</strong> made in Step 2 (locked). `
+    + `${filled.length < 2 ? 'Send one more, or edit the other field to encrypt it fresh. ' : ''}`
+    + 'Press <em>Encrypt A, B and multiply</em> to combine them. '
+    + '<button type="button" id="clear-slots" class="link-button">Clear slots</button>';
+
+  const clearButton = document.getElementById('clear-slots');
+  clearButton?.addEventListener('click', clearSlots);
+
+  handoffNote.textContent = `Sent Enc(${lastEncryption.message.toString()}) to slot ${slot.toUpperCase()}.`;
+});
+
+function clearSlots(): void {
+  suppliedCiphertext.a = null;
+  suppliedCiphertext.b = null;
+  sumAInput.readOnly = false;
+  sumBInput.readOnly = false;
+  sumAInput.classList.remove('slot-locked');
+  sumBInput.classList.remove('slot-locked');
+  sumSourceNote.innerHTML = 'Tip: in Step 2, hit <em>Send this ciphertext to Step 3</em> to add a ciphertext you made yourself into slot A or B.';
+}
 
 decryptForm.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -488,30 +701,102 @@ decryptForm.addEventListener('submit', (event) => {
   }
 });
 
+function resetLedger(): void {
+  sumLedger.hidden = true;
+  sumInsight.hidden = true;
+  ledgerA.textContent = '';
+  ledgerB.textContent = '';
+  ledgerProduct.textContent = '';
+  ledgerDecrypt.textContent = '';
+  ledgerAPlain.textContent = '';
+  ledgerBPlain.textContent = '';
+  insightBadSum.textContent = '';
+  clearSlots();
+}
+
 sumForm.addEventListener('submit', (event) => {
   event.preventDefault();
 
   try {
     const keyPair = requireKeyPair();
+    const { N } = keyPair.publicKey;
     const left = parseNonNegativeBigInt(sumAInput.value, 'Message A');
     const right = parseNonNegativeBigInt(sumBInput.value, 'Message B');
-    const encryptedLeft = encrypt(left, keyPair.publicKey);
-    const encryptedRight = encrypt(right, keyPair.publicKey);
-    const encryptedTotal = addCiphertexts(encryptedLeft.ciphertext, encryptedRight.ciphertext, keyPair.publicKey);
-    const decryptedTotal = decrypt(encryptedTotal, keyPair);
 
-    sumCiphertext.value = encryptedTotal.toString();
-    setResultBox(
-      sumResult,
-      [
-        `A ciphertext preview: <strong>${preview(encryptedLeft.ciphertext)}</strong>`,
-        `B ciphertext preview: <strong>${preview(encryptedRight.ciphertext)}</strong>`,
-        `Plaintext sum modulo N: <strong>${decryptedTotal.toString()}</strong>`,
-      ].join('<br />'),
-      'success',
-    );
+    // Reuse the exact ciphertext the learner handed off from Step 2 when a slot
+    // is supplied; otherwise encrypt the field value fresh. Either way these are
+    // real ciphertexts we multiply — nothing is faked.
+    const cA = suppliedCiphertext.a ?? encrypt(left, keyPair.publicKey).ciphertext;
+    const cB = suppliedCiphertext.b ?? encrypt(right, keyPair.publicKey).ciphertext;
+
+    const product = addCiphertexts(cA, cB, keyPair.publicKey);
+    const decryptedTotal = decrypt(product, keyPair);
+    const plainSum = left + right;
+    const overflowed = plainSum >= N;
+
+    // Populate the visible homomorphic-addition ledger with full values.
+    ledgerAPlain.textContent = suppliedCiphertext.a !== null ? `= Enc(${left}) — yours` : `= Enc(${left})`;
+    ledgerBPlain.textContent = suppliedCiphertext.b !== null ? `= Enc(${right}) — yours` : `= Enc(${right})`;
+    ledgerA.textContent = cA.toString();
+    ledgerB.textContent = cB.toString();
+    ledgerProduct.textContent = product.toString();
+    ledgerDecrypt.innerHTML = overflowed
+      ? `<strong class="ledger-wrong">${decryptedTotal.toString()}</strong> `
+        + `<span class="ledger-decrypt-note">(A + B = ${plainSum.toString()} ≥ N, so it wrapped)</span>`
+      : `<strong>${left} + ${right} = ${decryptedTotal.toString()}</strong>`;
+    sumLedger.hidden = false;
+
+    // Show that ciphertext-multiply — not ciphertext-add — is what maps to
+    // plaintext-add: adding the two ciphertexts as integers gives a different,
+    // wrong value. (Reduced mod N² since ciphertexts live in that ring.)
+    const naiveSum = (cA + cB) % keyPair.publicKey.N2;
+    insightBadSum.textContent = preview(naiveSum);
+    sumInsight.hidden = false;
+
+    if (overflowed) {
+      setResultBox(
+        sumResult,
+        [
+          `<strong>Modulus overflow.</strong> The true plaintext sum is <strong>${plainSum.toString()}</strong>, `
+            + `but that is ≥ N (${preview(N)}).`,
+          `The product ciphertext decrypts to <strong>${decryptedTotal.toString()}</strong> — i.e. `
+            + `(A + B) mod N. Paillier's plaintext space is the integers mod N; a sum that exceeds N wraps and the `
+            + `decryption is silently wrong. Real deployments bound inputs so the running total can never reach N.`,
+        ].join('<br /><br />'),
+        'error',
+      );
+    } else {
+      setResultBox(
+        sumResult,
+        [
+          `The product ciphertext decrypts to <strong>${decryptedTotal.toString()}</strong>, exactly `
+            + `A + B = ${left} + ${right}.`,
+          `You added two encrypted numbers without ever decrypting them individually. `
+            + `The sum stays below N (${preview(N)}), so no wrap-around.`,
+        ].join('<br /><br />'),
+        'success',
+      );
+    }
   } catch (error) {
     setResultBox(sumResult, error instanceof Error ? error.message : 'Encrypted sum failed.', 'error');
+  }
+});
+
+// Load values whose sum exceeds N so the learner can watch decryption wrap. We
+// use N so both operands are legal plaintexts (each < N) yet their sum is >= N.
+overflowPresetButton.addEventListener('click', () => {
+  try {
+    const { N } = requireKeyPair().publicKey;
+    clearSlots();
+    // Two in-range plaintexts (< N) whose sum lands just past N.
+    const a = N - 5n;
+    const b = 10n;
+    sumAInput.value = a.toString();
+    sumBInput.value = b.toString();
+    sumSourceNote.innerHTML = 'Overflow preset loaded: A + B exceeds N. '
+      + 'Press <em>Encrypt A, B and multiply</em> to watch the decryption wrap around.';
+  } catch (error) {
+    setResultBox(sumResult, error instanceof Error ? error.message : 'Preset failed.', 'error');
   }
 });
 
