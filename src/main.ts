@@ -38,20 +38,17 @@ if (!app) {
 
 app.innerHTML = `
   <main class="shell" id="main" tabindex="-1">
-    <header class="masthead panel panel-wide">
-      <div>
-        <p class="eyebrow">crypto-lab / browser demo</p>
-        <h1>Paillier Gate</h1>
-        <p class="lede">
-          Generate a toy Paillier keypair in the browser, encrypt values, and verify that addition works on ciphertexts before decryption.
-        </p>
+    <header class="cl-hero">
+      <div class="cl-hero-main">
+        <h1 class="cl-hero-title">Paillier Gate</h1>
+        <p class="cl-hero-sub">additively-homomorphic public-key encryption</p>
       </div>
-      <div class="callout">
-        <span class="callout-label">Why this matters</span>
-        <p>
-          An aggregator can combine encrypted totals without seeing the private inputs. The final tally is revealed only after decryption.
+      <aside class="cl-hero-why" aria-label="Why it matters">
+        <span class="cl-hero-why-label">WHY IT MATTERS</span>
+        <p class="cl-hero-why-text">
+          Paillier lets you add and scale numbers while they stay encrypted — an aggregator can combine private inputs it can never read. Only the final sum is revealed when someone with the key decrypts it.
         </p>
-      </div>
+      </aside>
     </header>
 
     <section class="panel panel-wide">
