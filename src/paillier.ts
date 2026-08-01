@@ -83,25 +83,30 @@ export async function generateKeyPair(
 
   await yieldToEventLoop();
 
+  // Each stage label is emitted *before* the work it names, so the progress text
+  // describes what is running rather than what already finished.
+  onProgress?.('Computing modulus N = p · q', 65);
   const N = p * q;
+  const g = N + 1n;
+  const N2 = N * N;
+  await yieldToEventLoop();
+
+  onProgress?.('Computing lambda = lcm(p-1, q-1)', 78);
   const lambda = lcm(p - 1n, q - 1n);
 
   if (gcd(lambda, N) !== 1n) {
     throw new Error('Invalid key material: lambda is not invertible mod N.');
   }
 
-  const g = N + 1n;
-  const N2 = N * N;
-
-  onProgress?.(`Computing modulus N = p · q (${bigintBitLength(N)} bits)`, 65);
-  await yieldToEventLoop();
-
-  onProgress?.('Computing lambda = lcm(p-1, q-1)', 78);
-  const mu = modInverse(lambda, N);
   await yieldToEventLoop();
 
   onProgress?.('Computing mu = lambda^-1 mod N', 90);
-  onProgress?.(`Keypair generated. p attempts: ${pAttempts}, q attempts: ${qAttempts}`, 100);
+  const mu = modInverse(lambda, N);
+
+  onProgress?.(
+    `Keypair generated (N is ${bigintBitLength(N)} bits). p attempts: ${pAttempts}, q attempts: ${qAttempts}`,
+    100,
+  );
 
   return {
     publicKey: {

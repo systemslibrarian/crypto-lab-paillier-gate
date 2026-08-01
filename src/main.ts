@@ -2,6 +2,7 @@ import {
   addCiphertexts,
   decrypt,
   encrypt,
+  rerandomize,
   type PaillierKeyPair,
 } from './paillier';
 import { simulatePrivateAggregation, simulatePrivateElection, weightedSum } from './aggregation';
@@ -157,6 +158,7 @@ app.innerHTML = `
           <div class="button-row">
             <button class="button" type="submit">Encrypt message</button>
             <button id="encrypt-again" class="button button-ghost" type="button" disabled>Encrypt again (same m)</button>
+            <button id="rerandomize" class="button button-ghost" type="button" disabled>Re-randomize this ciphertext</button>
           </div>
         </form>
 
@@ -174,9 +176,12 @@ app.innerHTML = `
         <div class="semantic-demo" id="semantic-demo" hidden>
           <p class="semantic-demo-title">Same message, different ciphertexts</p>
           <p class="semantic-demo-copy">
-            Press <em>Encrypt again</em> to stack more encryptions of the identical plaintext. The ciphertexts differ
-            completely, yet every one decrypts back to the same <code id="semantic-plaintext">m</code>. That visible gap
-            between identical input and different output <em>is</em> semantic security.
+            Press <em>Encrypt again</em> to stack more encryptions of the identical plaintext, or
+            <em>Re-randomize this ciphertext</em> to refresh an existing ciphertext with a new <code>rᴺ</code> factor
+            without knowing <code>m</code>. The ciphertexts differ completely, yet every one decrypts back to the same
+            <code id="semantic-plaintext">m</code>. Each row below is decrypted with the private key as it is added, and
+            the value shown is that decryption — not a repeat of what you typed. That visible gap between identical
+            input and different output <em>is</em> semantic security.
           </p>
           <ol id="semantic-list" class="semantic-list" aria-label="Ciphertexts of the same plaintext"></ol>
         </div>
@@ -244,7 +249,8 @@ app.innerHTML = `
         <div class="ledger-insight" id="sum-insight" hidden>
           <p><strong>The multiply → add mapping.</strong> The product ciphertext above is <em>not</em>
           <code id="insight-catraw">Enc(A) + Enc(B)</code> — adding the two ciphertexts as plain integers gives
-          <code id="insight-badsum" class="insight-bad"></code>, which decrypts to garbage. Only their
+          <code id="insight-badsum" class="insight-bad"></code>, which this page then actually decrypts, with the same
+          private key, to <code id="insight-baddec" class="insight-bad"></code>. Only their
           <em>product mod N²</em> decrypts to A + B. Ciphertext multiplication is what maps to plaintext addition.</p>
         </div>
 
@@ -401,6 +407,7 @@ const ciphertextOutput = byId<HTMLTextAreaElement>('ciphertext-output');
 const randomizerOutput = byId<HTMLTextAreaElement>('randomizer-output');
 const encryptForm = byId<HTMLFormElement>('encrypt-form');
 const encryptAgainButton = byId<HTMLButtonElement>('encrypt-again');
+const rerandomizeButton = byId<HTMLButtonElement>('rerandomize');
 const semanticDemo = byId<HTMLDivElement>('semantic-demo');
 const semanticPlaintext = byId<HTMLElement>('semantic-plaintext');
 const semanticList = byId<HTMLOListElement>('semantic-list');
@@ -424,6 +431,7 @@ const ledgerProduct = byId<HTMLDivElement>('ledger-product');
 const ledgerDecrypt = byId<HTMLDivElement>('ledger-decrypt');
 const sumInsight = byId<HTMLDivElement>('sum-insight');
 const insightBadSum = byId<HTMLElement>('insight-badsum');
+const insightBadDecrypt = byId<HTMLElement>('insight-baddec');
 const sumResult = byId<HTMLDivElement>('sum-result');
 const aggregationForm = byId<HTMLFormElement>('aggregation-form');
 const countsInput = byId<HTMLTextAreaElement>('counts-input');
@@ -463,8 +471,10 @@ function updateControlState(): void {
     control.disabled = !activeKeyPair || isGenerating;
   }
 
-  // "Encrypt again" also needs a prior encryption to repeat.
+  // "Encrypt again" also needs a prior encryption to repeat, and re-randomizing
+  // needs an existing ciphertext to refresh.
   encryptAgainButton.disabled = !activeKeyPair || isGenerating || semanticMessage === null;
+  rerandomizeButton.disabled = !activeKeyPair || isGenerating || lastEncryption === null;
 }
 
 function setProgress(stage: string, percent: number): void {
@@ -567,7 +577,11 @@ function resetHandoff(): void {
 }
 
 // Append one ciphertext row to the "same message, different ciphertext" stack.
-function addSemanticRow(ciphertext: bigint): void {
+// The row's caption is the result of actually decrypting that ciphertext with
+// the private key, so the "they all decrypt to the same m" claim on this panel
+// is computed per row rather than asserted.
+function addSemanticRow(ciphertext: bigint, origin: 'encrypted' | 're-randomized'): void {
+  const keyPair = requireKeyPair();
   const item = document.createElement('li');
   const code = document.createElement('code');
   code.className = 'semantic-ct';
@@ -576,6 +590,20 @@ function addSemanticRow(ciphertext: bigint): void {
   code.setAttribute('aria-label', `Ciphertext ${semanticList.children.length + 1} of the same plaintext`);
   code.textContent = ciphertext.toString();
   item.appendChild(code);
+
+  const note = document.createElement('span');
+  note.className = 'field-note';
+
+  let recovered: string;
+
+  try {
+    recovered = decrypt(ciphertext, keyPair).toString();
+  } catch (error) {
+    recovered = error instanceof Error ? `did not decrypt (${error.message})` : 'did not decrypt';
+  }
+
+  note.textContent = ` ${origin} · decrypts to ${recovered}`;
+  item.appendChild(note);
   semanticList.appendChild(item);
 }
 
@@ -598,7 +626,7 @@ function doEncrypt(message: bigint, isRepeat: boolean): void {
     semanticList.innerHTML = '';
   }
   semanticPlaintext.textContent = message.toString();
-  addSemanticRow(encrypted.ciphertext);
+  addSemanticRow(encrypted.ciphertext, 'encrypted');
   semanticDemo.hidden = false;
 
   const count = semanticList.children.length;
@@ -633,6 +661,44 @@ encryptAgainButton.addEventListener('click', () => {
     doEncrypt(semanticMessage, true);
   } catch (error) {
     setResultBox(decryptResult, error instanceof Error ? error.message : 'Encryption failed.', 'error');
+  }
+});
+
+// Re-randomization: multiply the existing ciphertext by a fresh r^N, which
+// changes every digit of the ciphertext while leaving the plaintext untouched.
+// It needs only the public key — the page never re-encrypts m here.
+rerandomizeButton.addEventListener('click', () => {
+  if (!lastEncryption) {
+    return;
+  }
+
+  try {
+    const keyPair = requireKeyPair();
+    const refreshed = rerandomize(lastEncryption.ciphertext, keyPair.publicKey);
+    const changed = refreshed !== lastEncryption.ciphertext;
+
+    lastEncryption = { message: lastEncryption.message, ciphertext: refreshed };
+    ciphertextOutput.value = refreshed.toString();
+    randomizerOutput.value = 'r is now r_old · r_new mod N — the page multiplies in a fresh factor and does not track the product';
+    decryptInput.value = refreshed.toString();
+    handoffNote.textContent = `Ready to hand off Enc(${lastEncryption.message.toString()}).`;
+
+    semanticMessage = lastEncryption.message;
+    semanticPlaintext.textContent = lastEncryption.message.toString();
+    addSemanticRow(refreshed, 're-randomized');
+    semanticDemo.hidden = false;
+
+    setResultBox(
+      decryptResult,
+      changed
+        ? 'Re-randomized with the <strong>public key only</strong>: the ciphertext changed, and the row added below '
+          + 'shows what it decrypts to now.'
+        : 'Re-randomization returned the same ciphertext — the fresh factor happened to be 1. Press it again.',
+      changed ? 'success' : 'error',
+    );
+    updateControlState();
+  } catch (error) {
+    setResultBox(decryptResult, error instanceof Error ? error.message : 'Re-randomization failed.', 'error');
   }
 });
 
@@ -709,6 +775,7 @@ function resetLedger(): void {
   ledgerAPlain.textContent = '';
   ledgerBPlain.textContent = '';
   insightBadSum.textContent = '';
+  insightBadDecrypt.textContent = '';
   clearSlots();
 }
 
@@ -749,6 +816,22 @@ sumForm.addEventListener('submit', (event) => {
     // wrong value. (Reduced mod N² since ciphertexts live in that ring.)
     const naiveSum = (cA + cB) % keyPair.publicKey.N2;
     insightBadSum.textContent = preview(naiveSum);
+
+    // Decrypt the integer sum for real rather than asserting it is garbage. It
+    // is only a valid ciphertext when it happens to be a unit mod N, so a
+    // failure to decrypt at all is also a legitimate outcome to report.
+    let naiveDecryption: string;
+
+    try {
+      const naivePlaintext = decrypt(naiveSum, keyPair);
+      naiveDecryption = naivePlaintext === plainSum % N
+        ? `${preview(naivePlaintext)} (a coincidence at this key size — regenerate a larger key)`
+        : preview(naivePlaintext);
+    } catch {
+      naiveDecryption = 'nothing at all — it is not even a valid ciphertext';
+    }
+
+    insightBadDecrypt.textContent = naiveDecryption;
     sumInsight.hidden = false;
 
     if (overflowed) {

@@ -19,9 +19,10 @@ The demo lets you generate a Paillier keypair, encrypt and decrypt messages, com
 
 To make the homomorphic "magic" observable rather than asserted, the demo also includes:
 
-- A **homomorphic-addition ledger** in Step 3 that shows the full `Enc(A)`, `Enc(B)`, and product ciphertexts with a literal `× (mod N²)` operator and a `decrypt →` arrow to `A + B`, plus an inline callout proving the product is *not* the integer sum of the two ciphertexts (that value decrypts to garbage) — ciphertext multiplication is what maps to plaintext addition.
+- A **homomorphic-addition ledger** in Step 3 that shows the full `Enc(A)`, `Enc(B)`, and product ciphertexts with a literal `× (mod N²)` operator and a `decrypt →` arrow to `A + B`, plus an inline callout proving the product is *not* the integer sum of the two ciphertexts — the page decrypts that integer sum too and prints the wrong value it yields, so ciphertext multiplication being the operation that maps to plaintext addition is demonstrated, not claimed.
 - A **ciphertext hand-off**: encrypt a value in Step 2 and send that exact ciphertext into Step 3 so you combine data you personally encrypted, instead of the demo re-encrypting behind the scenes.
-- A **"same message, different ciphertext"** stack (an *Encrypt again* button) that visualizes semantic security: identical plaintexts yield visibly different ciphertexts that all decrypt to the same value.
+- A **"same message, different ciphertext"** stack (an *Encrypt again* button) that visualizes semantic security: identical plaintexts yield visibly different ciphertexts. Each row is decrypted with the private key as it is added and captioned with that decryption, so "they all decrypt to the same value" is shown rather than asserted.
+- A **re-randomize** control that folds a fresh `rᴺ` factor into an existing ciphertext using only the public key — the ciphertext changes completely, the plaintext does not, and the new row's caption is the real decryption of the refreshed ciphertext.
 - An **interactive modulus-overflow preset** that forces an encrypted sum past `N` so you can watch decryption silently wrap to the wrong value, with a callout explaining the plaintext-space bound.
 - **Plain-language glosses** on the `N`, `g`, and `λ` metric cards and a collapsible *What's happening under the hood* panel carrying the key-generation and encryption math onto the page.
 
