@@ -2,10 +2,28 @@ import {
   addCiphertexts,
   decrypt,
   encrypt,
+  multiplyByScalar,
   rerandomize,
+  traceDecryption,
+  type DecryptionStep,
   type PaillierKeyPair,
 } from './paillier';
-import { simulatePrivateAggregation, simulatePrivateElection, weightedSum } from './aggregation';
+import { simulatePrivateAggregation, weightedSum } from './aggregation';
+import {
+  forgeBallot,
+  generateBallotKey,
+  runBallotBox,
+  sealBallots,
+  tagCiphertext,
+  type SealedBallot,
+} from './ballots';
+import {
+  DEFAULT_BUDGET,
+  expectedIterations,
+  keyPairFromRecovered,
+  recoverPrivateKey,
+  type FactorResult,
+} from './factor';
 import './style.css';
 
 type GenerateRequest = {
@@ -30,6 +48,11 @@ type ErrorMessage = {
 };
 
 type WorkerMessage = ProgressMessage | SuccessMessage | ErrorMessage;
+
+type FactorWorkerMessage =
+  | { type: 'progress'; iterations: number }
+  | { type: 'done'; result: FactorResult }
+  | { type: 'error'; message: string };
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -113,6 +136,21 @@ app.innerHTML = `
           <code id="metric-lambda">-</code>
           <span class="metric-gloss">private trapdoor λ = lcm(p−1, q−1) — the secret that unlocks decryption</span>
         </article>
+      </div>
+
+      <div class="attack-block" id="factor-block">
+        <h3 class="attack-title">Attack the key: factor N</h3>
+        <p class="section-copy">
+          The private key <em>is</em> the factorisation. Run a real Pollard rho (Brent's variant) against the
+          modulus above: if it splits <code>N</code> into <code>p·q</code>, this page rebuilds
+          <code>λ = lcm(p−1, q−1)</code> from those primes and decrypts your ciphertext with the key it just derived.
+          At larger sizes the same routine runs out of budget — that is the wall the bit-length selector is really about,
+          measured rather than captioned.
+        </p>
+        <div class="button-row">
+          <button id="factor-key" class="button" type="button" disabled>Factor N (budget: <span id="factor-budget"></span> steps)</button>
+        </div>
+        <div id="factor-result" class="result-box" role="status" aria-live="polite">Generate a keypair, then try to break it.</div>
       </div>
 
       <details class="explainer">
@@ -200,6 +238,19 @@ app.innerHTML = `
         </form>
 
         <div id="decrypt-result" class="result-box" role="status" aria-live="polite">Generate a keypair first.</div>
+
+        <div class="stepper" id="decrypt-stepper">
+          <p class="stepper-title">Run <code>m = L(c^λ mod N²) · μ mod N</code> one step at a time</p>
+          <p class="section-copy">
+            Same ciphertext that is in the box above, same private key. Each press performs the next operation and
+            prints the number it produced; the last one is the plaintext.
+          </p>
+          <div class="button-row">
+            <button id="step-decrypt" class="button button-ghost" type="button" disabled>Step the decryption</button>
+            <button id="reset-stepper" class="button button-ghost" type="button" disabled>Reset steps</button>
+          </div>
+          <ol id="stepper-list" class="stepper-list" aria-label="Decryption steps"></ol>
+        </div>
       </article>
 
       <article class="panel">
@@ -260,10 +311,15 @@ app.innerHTML = `
       <article class="panel">
         <div class="section-heading">
           <div>
-            <p class="section-kicker">Scenario A</p>
-            <h2>Private aggregation</h2>
+            <p class="section-kicker">Scenario A · confidentiality</p>
+            <h2>Weighted aggregation</h2>
           </div>
-          <p class="section-copy">Hospitals submit encrypted counts. The coordinator receives a total without seeing the raw inputs.</p>
+          <p class="section-copy">
+            Hospitals submit encrypted counts and the coordinator gets a total it can never attribute. This scenario is
+            about the <strong>second</strong> homomorphism: alongside the plain sum <code>∏ Enc(xᵢ)</code>, it raises each
+            ciphertext to a public weight — <code>∏ Enc(xᵢ)^wᵢ</code> — so multiplication by a known constant happens
+            under encryption too. (Scenario B uses the same algebra as an attack.)
+          </p>
         </div>
 
         <form id="aggregation-form" class="stack-form">
@@ -278,16 +334,28 @@ app.innerHTML = `
           <button class="button" type="submit">Aggregate encrypted counts</button>
         </form>
 
+        <table class="breakdown" id="aggregation-table" hidden>
+          <caption>Per-row contribution to the weighted total</caption>
+          <thead>
+            <tr><th scope="col">Row</th><th scope="col">Count x</th><th scope="col">Weight w</th><th scope="col">Enc(x)^w mod N² (truncated)</th></tr>
+          </thead>
+          <tbody id="aggregation-rows"></tbody>
+        </table>
+
         <div id="aggregation-result" class="result-box" role="status" aria-live="polite">The encrypted total and weighted total will appear here.</div>
       </article>
 
       <article class="panel">
         <div class="section-heading">
           <div>
-            <p class="section-kicker">Scenario B</p>
-            <h2>Binary election tally</h2>
+            <p class="section-kicker">Scenario B · integrity</p>
+            <h2>Rewriting a sealed ballot</h2>
           </div>
-          <p class="section-copy">Votes stay encrypted during collection. Only the final tally is decrypted.</p>
+          <p class="section-copy">
+            Votes stay encrypted during collection — and that is <em>all</em> Paillier gives you. Because ciphertexts
+            multiply, anyone who can touch a ballot in transit can add votes to it with the public key alone. Tally the
+            ballots, then mount that attack against one of them.
+          </p>
         </div>
 
         <form id="election-form" class="stack-form">
@@ -295,10 +363,38 @@ app.innerHTML = `
             <span>Votes (0 or 1, comma separated)</span>
             <textarea id="votes-input" rows="3">1, 1, 0, 1, 0, 1, 0, 1, 1, 0</textarea>
           </label>
-          <button class="button" type="submit">Tally encrypted votes</button>
+          <button class="button" type="submit">Seal and tally ballots</button>
         </form>
 
         <div id="election-result" class="result-box" role="status" aria-live="polite">The encrypted tally will appear here.</div>
+
+        <div class="attack-block" id="ballot-attack" hidden>
+          <h3 class="attack-title">Malleability attack</h3>
+          <p class="section-copy">
+            The attacker encrypts a boost under the <strong>public</strong> key and multiplies it into someone else's
+            ballot. They never see the vote and never hold <code>λ</code>. Encrypt-then-MAC is the fix: the ballot box
+            re-derives each tag over the ciphertext it received and drops any that no longer match.
+          </p>
+          <div class="control-row">
+            <label class="field compact-field">
+              <span>Ballot to rewrite</span>
+              <select id="attack-target"></select>
+            </label>
+            <label class="field compact-field">
+              <span>Votes to inject</span>
+              <input id="attack-boost" inputmode="numeric" value="100" />
+            </label>
+          </div>
+          <label class="checkbox-field">
+            <input type="checkbox" id="attack-authenticate" />
+            <span>Ballot box verifies Encrypt-then-MAC tags</span>
+          </label>
+          <div class="button-row">
+            <button id="forge-ballot" class="button" type="button">Forge ballot and re-tally</button>
+          </div>
+          <ol id="ballot-list" class="ballot-list" aria-label="Sealed ballots"></ol>
+          <div id="attack-result" class="result-box" role="status" aria-live="polite">Nothing forged yet.</div>
+        </div>
       </article>
     </section>
 
@@ -437,9 +533,24 @@ const aggregationForm = byId<HTMLFormElement>('aggregation-form');
 const countsInput = byId<HTMLTextAreaElement>('counts-input');
 const weightsInput = byId<HTMLTextAreaElement>('weights-input');
 const aggregationResult = byId<HTMLDivElement>('aggregation-result');
+const aggregationTable = byId<HTMLTableElement>('aggregation-table');
+const aggregationRows = byId<HTMLTableSectionElement>('aggregation-rows');
 const electionForm = byId<HTMLFormElement>('election-form');
 const votesInput = byId<HTMLTextAreaElement>('votes-input');
 const electionResult = byId<HTMLDivElement>('election-result');
+const factorButton = byId<HTMLButtonElement>('factor-key');
+const factorBudgetLabel = byId<HTMLElement>('factor-budget');
+const factorResult = byId<HTMLDivElement>('factor-result');
+const stepDecryptButton = byId<HTMLButtonElement>('step-decrypt');
+const resetStepperButton = byId<HTMLButtonElement>('reset-stepper');
+const stepperList = byId<HTMLOListElement>('stepper-list');
+const ballotAttack = byId<HTMLDivElement>('ballot-attack');
+const attackTarget = byId<HTMLSelectElement>('attack-target');
+const attackBoost = byId<HTMLInputElement>('attack-boost');
+const attackAuthenticate = byId<HTMLInputElement>('attack-authenticate');
+const forgeButton = byId<HTMLButtonElement>('forge-ballot');
+const ballotList = byId<HTMLOListElement>('ballot-list');
+const attackResult = byId<HTMLDivElement>('attack-result');
 
 const requiresKeyControls = Array.from(
   app.querySelectorAll<HTMLButtonElement>('button:not(#generate-key)'),
@@ -462,6 +573,20 @@ let semanticMessage: bigint | null = null;
 // handed off from Step 2."
 const suppliedCiphertext: { a: bigint | null; b: bigint | null } = { a: null, b: null };
 
+// Decryption-stepper state: the ciphertext being walked, the precomputed real
+// steps for it, and how many have been revealed.
+let stepperTrace: { ciphertext: bigint; steps: DecryptionStep[]; revealed: number } | null = null;
+
+// Election state for the malleability exhibit.
+let ballotState: {
+  key: CryptoKey;
+  ballots: SealedBallot[];
+  honestTally: bigint;
+  honestSum: bigint;
+} | null = null;
+
+let isFactoring = false;
+
 function updateControlState(): void {
   generateButton.disabled = isGenerating;
   generateButton.setAttribute('aria-busy', String(isGenerating));
@@ -475,6 +600,17 @@ function updateControlState(): void {
   // needs an existing ciphertext to refresh.
   encryptAgainButton.disabled = !activeKeyPair || isGenerating || semanticMessage === null;
   rerandomizeButton.disabled = !activeKeyPair || isGenerating || lastEncryption === null;
+  factorButton.disabled = !activeKeyPair || isGenerating || isFactoring;
+  factorButton.setAttribute('aria-busy', String(isFactoring));
+  // Nothing left to step once the trace for the ciphertext currently in the box
+  // has been fully revealed; editing the box starts a new trace.
+  const traceExhausted = stepperTrace !== null
+    && stepperTrace.revealed >= stepperTrace.steps.length
+    && stepperTrace.ciphertext.toString() === decryptInput.value.trim();
+  stepDecryptButton.disabled = !activeKeyPair || isGenerating
+    || decryptInput.value.trim() === '' || traceExhausted;
+  resetStepperButton.disabled = stepperTrace === null;
+  forgeButton.disabled = !activeKeyPair || isGenerating || ballotState === null;
 }
 
 function setProgress(stage: string, percent: number): void {
@@ -521,6 +657,9 @@ keygenWorker.addEventListener('message', (event: MessageEvent<WorkerMessage>) =>
     resetSemanticDemo();
     resetHandoff();
     resetLedger();
+    resetStepper();
+    resetBallots();
+    setResultBox(factorResult, 'Key is fresh. Try to factor N and rebuild λ from it.', 'success');
     setResultBox(aggregationResult, 'Run a hospital-style aggregation or weighted total with the new keypair.', 'success');
     setResultBox(electionResult, 'Run an encrypted binary vote tally with the new keypair.', 'success');
     updateControlState();
@@ -554,6 +693,8 @@ keyForm.addEventListener('submit', (event) => {
   resetSemanticDemo();
   resetHandoff();
   resetLedger();
+  resetStepper();
+  resetBallots();
   setProgress('Dispatching key generation worker...', 2);
 
   const request: GenerateRequest = {
@@ -896,16 +1037,43 @@ aggregationForm.addEventListener('submit', (event) => {
       keyPair.publicKey,
     );
     const decryptedWeighted = decrypt(weightedCiphertext, keyPair);
-    const previews = scenario.hospitals
-      .map((hospital) => `${hospital.id}: ${preview(hospital.encryptedCount)}`)
-      .join('<br />');
+    // Per-row breakdown: the weighted contribution is Enc(x)^w mod N², a real
+    // ciphertext exponentiation, printed next to the numbers that produced it.
+    aggregationRows.innerHTML = '';
+    scenario.hospitals.forEach((hospital, index) => {
+      const weight = weights[index] ?? 1n;
+      const contribution = multiplyByScalar(hospital.encryptedCount, weight, keyPair.publicKey);
+      const row = document.createElement('tr');
+      for (const text of [
+        hospital.id,
+        hospital.privateCount.toString(),
+        weight.toString(),
+        preview(contribution, 10),
+      ]) {
+        const cell = document.createElement('td');
+        cell.textContent = text;
+        row.appendChild(cell);
+      }
+      aggregationRows.appendChild(row);
+    });
+    aggregationTable.hidden = false;
+
+    // Both totals are checked against the arithmetic they claim to perform.
+    const plainTotal = counts.reduce((sum, value) => sum + value, 0n);
+    const plainWeighted = counts.reduce(
+      (sum, value, index) => sum + value * (weights[index] ?? 1n),
+      0n,
+    );
 
     setResultBox(
       aggregationResult,
       [
-        `Encrypted rows:<br />${previews}`,
-        `Decrypted aggregate total: <strong>${decryptedTotal.toString()}</strong>`,
-        `Weighted total: <strong>${decryptedWeighted.toString()}</strong>`,
+        `Sum ∏ Enc(xᵢ) decrypts to <strong>${decryptedTotal.toString()}</strong> `
+          + `(plaintext Σxᵢ = ${plainTotal.toString()} — ${decryptedTotal === plainTotal % keyPair.publicKey.N ? 'match' : 'mismatch'}).`,
+        `Weighted ∏ Enc(xᵢ)<sup>wᵢ</sup> decrypts to <strong>${decryptedWeighted.toString()}</strong> `
+          + `(plaintext Σwᵢxᵢ = ${plainWeighted.toString()} — ${decryptedWeighted === plainWeighted % keyPair.publicKey.N ? 'match' : 'mismatch'}).`,
+        `Exponentiating a ciphertext by a public constant is the second homomorphism: it multiplies the hidden `
+          + `plaintext without revealing it. Scenario B turns that same move into an attack.`,
       ].join('<br /><br />'),
       'success',
     );
@@ -914,29 +1082,333 @@ aggregationForm.addEventListener('submit', (event) => {
   }
 });
 
+function resetBallots(): void {
+  ballotState = null;
+  ballotAttack.hidden = true;
+  ballotList.innerHTML = '';
+  attackTarget.innerHTML = '';
+  setResultBox(attackResult, 'Nothing forged yet.', 'neutral');
+}
+
+// Render the ballot box's current contents: the ciphertext each voter submitted,
+// the tag that was sealed with it, and whether it still matches.
+function renderBallots(ballots: SealedBallot[]): void {
+  ballotList.innerHTML = '';
+
+  for (const ballot of ballots) {
+    const item = document.createElement('li');
+    item.className = ballot.tampered ? 'ballot-row ballot-row-tampered' : 'ballot-row';
+
+    const who = document.createElement('span');
+    who.className = 'ballot-who';
+    who.textContent = ballot.voterId + (ballot.tampered ? ' — rewritten in transit' : '');
+    item.appendChild(who);
+
+    const code = document.createElement('code');
+    code.className = 'ballot-ct';
+    code.textContent = preview(ballot.ciphertext, 14);
+    item.appendChild(code);
+
+    const tag = document.createElement('span');
+    tag.className = 'field-note';
+    tag.textContent = ` tag ${ballot.tag.slice(0, 16)}…`;
+    item.appendChild(tag);
+
+    ballotList.appendChild(item);
+  }
+}
+
 electionForm.addEventListener('submit', (event) => {
   event.preventDefault();
 
+  void (async () => {
+    try {
+      const keyPair = requireKeyPair();
+      const votes = parseVoteList(votesInput.value);
+      const key = await generateBallotKey();
+      const ballots = await sealBallots(votes, keyPair.publicKey, key);
+      const encryptedTally = ballots.reduce(
+        (accumulator, ballot) => addCiphertexts(accumulator, ballot.ciphertext, keyPair.publicKey),
+        1n,
+      );
+      const decryptedTally = decrypt(encryptedTally, keyPair);
+      const honestSum = BigInt(votes.reduce((sum, vote) => sum + vote, 0));
+
+      ballotState = { key, ballots, honestTally: decryptedTally, honestSum };
+
+      attackTarget.innerHTML = '';
+      ballots.forEach((ballot, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = ballot.voterId;
+        attackTarget.appendChild(option);
+      });
+
+      renderBallots(ballots);
+      ballotAttack.hidden = false;
+      setResultBox(attackResult, 'Nothing forged yet.', 'neutral');
+
+      setResultBox(
+        electionResult,
+        [
+          `Sealed <strong>${ballots.length}</strong> ballots, each encrypted under the public key and tagged with `
+            + `HMAC-SHA256 by the ballot box.`,
+          `Honest tally decrypts to <strong>${decryptedTally.toString()} / ${votes.length}</strong> `
+            + `(your 0/1 inputs sum to ${honestSum.toString()} — `
+            + `${decryptedTally === honestSum ? 'match' : 'mismatch'}).`,
+        ].join('<br /><br />'),
+        'success',
+      );
+      updateControlState();
+    } catch (error) {
+      setResultBox(electionResult, error instanceof Error ? error.message : 'Election tally failed.', 'error');
+    }
+  })();
+});
+
+// The attack itself. Everything the attacker does here goes through
+// forgeBallot(), which only ever receives the public key.
+forgeButton.addEventListener('click', () => {
+  void (async () => {
+    if (!ballotState) {
+      return;
+    }
+
+    try {
+      const keyPair = requireKeyPair();
+      const index = Number(attackTarget.value);
+      const target = ballotState.ballots[index];
+
+      if (!target) {
+        throw new Error('Pick a ballot to rewrite.');
+      }
+
+      const boost = parseNonNegativeBigInt(attackBoost.value, 'Votes to inject');
+      const forged = forgeBallot(target.ciphertext, boost, keyPair.publicKey);
+
+      // Replace the ciphertext in transit. The stored tag is left alone — the
+      // attacker cannot recompute it without the ballot box's MAC key.
+      ballotState.ballots[index] = { ...target, ciphertext: forged.forgedCiphertext, tampered: true };
+      renderBallots(ballotState.ballots);
+
+      const authenticate = attackAuthenticate.checked;
+      const box = await runBallotBox(
+        ballotState.ballots,
+        keyPair.publicKey,
+        ballotState.key,
+        authenticate,
+      );
+      const newTally = decrypt(box.encryptedTally, keyPair);
+      const recomputedTag = await tagCiphertext(forged.forgedCiphertext, ballotState.key);
+      const delta = newTally - ballotState.honestTally;
+
+      const attackLine = `Attacker computed Enc(${boost.toString()}) = <code>${preview(forged.injectedCiphertext, 10)}</code> `
+        + `with the public key and multiplied it into ${target.voterId}'s ballot mod N². They still do not know how `
+        + `${target.voterId} voted.`;
+
+      if (authenticate) {
+        setResultBox(
+          attackResult,
+          [
+            attackLine,
+            `<strong>Encrypt-then-MAC caught it.</strong> The ballot box recomputed the tag over the ciphertext it `
+              + `received: <code>${recomputedTag.slice(0, 24)}…</code> ≠ sealed <code>${target.tag.slice(0, 24)}…</code>. `
+              + `${box.rejected.length} ballot(s) rejected, ${box.accepted.length} counted.`,
+            `Tally over the accepted ballots decrypts to <strong>${newTally.toString()}</strong> — the rigged +${boost.toString()} `
+              + `never landed. It is below the honest ${ballotState.honestTally.toString()} because the rejected ballot's own `
+              + `vote was dropped with it; authentication stops forgery, it does not repair a lost ballot.`,
+          ].join('<br /><br />'),
+          'success',
+        );
+      } else {
+        setResultBox(
+          attackResult,
+          [
+            attackLine,
+            `<strong>The tally is rigged.</strong> It now decrypts to <strong>${newTally.toString()}</strong>, `
+              + `${delta >= 0n ? '+' : ''}${delta.toString()} against the honest ${ballotState.honestTally.toString()}. `
+              + `The ballot box accepted all ${box.accepted.length} ballots because it checked nothing.`,
+            `Additive homomorphism <em>is</em> malleability. Turn on the tag check above and run the same attack again.`,
+          ].join('<br /><br />'),
+          'error',
+        );
+      }
+    } catch (error) {
+      setResultBox(attackResult, error instanceof Error ? error.message : 'Forgery failed.', 'error');
+    }
+  })();
+});
+
+// ---------------------------------------------------------------------------
+// Decryption stepper: execute m = L(c^λ mod N²) · μ mod N one operation at a
+// time on whatever ciphertext is currently in the decrypt box.
+// ---------------------------------------------------------------------------
+
+function resetStepper(): void {
+  stepperTrace = null;
+  stepperList.innerHTML = '';
+  updateControlState();
+}
+
+stepDecryptButton.addEventListener('click', () => {
   try {
     const keyPair = requireKeyPair();
-    const votes = parseVoteList(votesInput.value);
-    const scenario = simulatePrivateElection(votes, keyPair.publicKey);
-    const decryptedTally = decrypt(scenario.encryptedTally, keyPair);
-    const previews = scenario.encryptedVotes
-      .map((vote) => `${vote.voterId}: ${preview(vote.encryptedVote)}`)
-      .join('<br />');
+    const ciphertext = parseNonNegativeBigInt(decryptInput.value, 'Ciphertext');
 
-    setResultBox(
-      electionResult,
-      [
-        `Encrypted votes:<br />${previews}`,
-        `Decrypted tally: <strong>${decryptedTally.toString()} / ${votes.length}</strong>`,
-      ].join('<br /><br />'),
-      'success',
-    );
+    if (!stepperTrace || stepperTrace.ciphertext !== ciphertext) {
+      stepperList.innerHTML = '';
+      stepperTrace = { ciphertext, steps: traceDecryption(ciphertext, keyPair), revealed: 0 };
+    }
+
+    if (stepperTrace.revealed >= stepperTrace.steps.length) {
+      return;
+    }
+
+    const step = stepperTrace.steps[stepperTrace.revealed];
+    stepperTrace.revealed += 1;
+    const isLast = stepperTrace.revealed === stepperTrace.steps.length;
+
+    const item = document.createElement('li');
+    item.className = isLast ? 'stepper-item stepper-item-final' : 'stepper-item';
+
+    const label = document.createElement('p');
+    label.className = 'stepper-label';
+    label.textContent = step.label;
+    item.appendChild(label);
+
+    const expression = document.createElement('code');
+    expression.className = 'stepper-expr';
+    expression.textContent = step.expression;
+    item.appendChild(expression);
+
+    const value = document.createElement('code');
+    value.className = 'stepper-value';
+    value.tabIndex = 0;
+    value.setAttribute('role', 'region');
+    value.setAttribute('aria-label', `Value after step ${stepperTrace.revealed}`);
+    value.textContent = step.value.toString();
+    item.appendChild(value);
+
+    if (isLast) {
+      // Cross-check the hand-walked identity against the library decrypt().
+      const viaDecrypt = decrypt(ciphertext, keyPair);
+      const note = document.createElement('p');
+      note.className = 'stepper-note';
+      note.textContent = `decrypt() returns ${viaDecrypt.toString()} for the same ciphertext — `
+        + `${viaDecrypt === step.value ? 'the stepped identity agrees' : 'MISMATCH'}.`;
+      item.appendChild(note);
+    }
+
+    stepperList.appendChild(item);
+    updateControlState();
   } catch (error) {
-    setResultBox(electionResult, error instanceof Error ? error.message : 'Election tally failed.', 'error');
+    const item = document.createElement('li');
+    item.className = 'stepper-item';
+    item.textContent = error instanceof Error ? error.message : 'Stepping failed.';
+    stepperList.appendChild(item);
   }
 });
+
+resetStepperButton.addEventListener('click', resetStepper);
+
+// ---------------------------------------------------------------------------
+// Factoring: the real break. Pollard rho in a worker, with the step count and
+// wall-clock time it actually used reported either way.
+// ---------------------------------------------------------------------------
+
+factorBudgetLabel.textContent = DEFAULT_BUDGET.toLocaleString('en-US');
+
+const factorWorker = new Worker(new URL('./factor.worker.ts', import.meta.url), { type: 'module' });
+
+factorWorker.addEventListener('message', (event: MessageEvent<FactorWorkerMessage>) => {
+  const message = event.data;
+
+  if (message.type === 'progress') {
+    setResultBox(
+      factorResult,
+      `Searching… ${message.iterations.toLocaleString('en-US')} modular squarings so far.`,
+      'neutral',
+    );
+    return;
+  }
+
+  isFactoring = false;
+  updateControlState();
+
+  if (message.type === 'error') {
+    setResultBox(factorResult, message.message, 'error');
+    return;
+  }
+
+  const { factor, iterations, ms, gaveUp } = message.result;
+
+  try {
+    const keyPair = requireKeyPair();
+    const bits = keyPair.publicKey.bitLength;
+    const expected = expectedIterations(bits);
+    const rate = ms > 0 ? Math.round(iterations / (ms / 1000)) : iterations;
+
+    if (!factor || gaveUp) {
+      setResultBox(
+        factorResult,
+        [
+          `<strong>Gave up.</strong> ${iterations.toLocaleString('en-US')} modular squarings in ${ms} ms `
+            + `(~${rate.toLocaleString('en-US')}/s) did not split this ${bits}-bit N.`,
+          `Pollard rho needs about 1.18·√p ≈ <strong>${Math.round(expected).toLocaleString('en-US')}</strong> steps for a `
+            + `${Math.floor(bits / 2)}-bit prime, and the budget here is ${DEFAULT_BUDGET.toLocaleString('en-US')}. `
+            + `Drop to 64-bit and the same code finishes instantly. Every extra 4 bits of N doubles that expected work — `
+            + `which is the entire argument for 2048-bit moduli, at which √p is around 2<sup>512</sup>.`,
+        ].join('<br /><br />'),
+        'error',
+      );
+      return;
+    }
+
+    const recovered = recoverPrivateKey(keyPair.publicKey, factor);
+    const matches = recovered.lambda === keyPair.privateKey.lambda;
+    const attackerKeyPair = keyPairFromRecovered(keyPair.publicKey, recovered);
+
+    let plaintextLine = 'Encrypt something in Step 2 and factor again to watch the recovered key open it.';
+
+    if (lastEncryption) {
+      const stolen = decrypt(lastEncryption.ciphertext, attackerKeyPair);
+      plaintextLine = `Decrypting your Step 2 ciphertext with the <em>recovered</em> key yields `
+        + `<strong>${stolen.toString()}</strong> — you encrypted ${lastEncryption.message.toString()} `
+        + `(${stolen === lastEncryption.message ? 'the key is broken' : 'no match'}).`;
+    }
+
+    setResultBox(
+      factorResult,
+      [
+        `<strong>Factored.</strong> ${iterations.toLocaleString('en-US')} modular squarings in ${ms} ms `
+          + `(~${rate.toLocaleString('en-US')}/s) split the ${bits}-bit modulus.`,
+        `p = <code>${recovered.p.toString()}</code><br />q = <code>${recovered.q.toString()}</code>`,
+        `Rebuilt λ = lcm(p−1, q−1) = <code>${preview(recovered.lambda)}</code> — `
+          + `${matches ? 'identical to the private λ generated in the worker' : 'does not match the generated λ'}.`,
+        plaintextLine,
+      ].join('<br /><br />'),
+      'error',
+    );
+  } catch (error) {
+    setResultBox(factorResult, error instanceof Error ? error.message : 'Recovery failed.', 'error');
+  }
+});
+
+factorButton.addEventListener('click', () => {
+  try {
+    const keyPair = requireKeyPair();
+    isFactoring = true;
+    updateControlState();
+    setResultBox(factorResult, 'Running Pollard rho against N…', 'neutral');
+    factorWorker.postMessage({ type: 'factor', N: keyPair.publicKey.N, budget: DEFAULT_BUDGET });
+  } catch (error) {
+    isFactoring = false;
+    updateControlState();
+    setResultBox(factorResult, error instanceof Error ? error.message : 'Factoring failed.', 'error');
+  }
+});
+
+// The stepper only makes sense once there is a ciphertext to walk.
+decryptInput.addEventListener('input', updateControlState);
 
 updateControlState();

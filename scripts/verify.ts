@@ -1,4 +1,11 @@
 import { simulatePrivateAggregation, simulatePrivateElection, weightedSum } from '../src/aggregation';
+import { forgeBallot, generateBallotKey, runBallotBox, sealBallots } from '../src/ballots';
+import {
+  DEFAULT_BUDGET,
+  factorSemiprime,
+  keyPairFromRecovered,
+  recoverPrivateKey,
+} from '../src/factor';
 import { gcd, generatePrime, isProbablePrime, lcm, modInverse, modPow } from '../src/numbers';
 import {
   addCiphertexts,
@@ -8,6 +15,7 @@ import {
   generateKeyPair,
   multiplyByScalar,
   rerandomize,
+  traceDecryption,
 } from '../src/paillier';
 
 function assert(condition: boolean, message: string): void {
@@ -89,6 +97,42 @@ async function main(): Promise<void> {
     toyKeyPair.publicKey,
   );
   assert(decrypt(weightedCiphertext, toyKeyPair) === 140n, 'Weighted sum gate failed');
+
+  // Factoring gate: the in-page break must actually break a 64-bit modulus, and
+  // must report failure honestly when the budget is too small to finish.
+  const breakableKeyPair = await generateKeyPair(64);
+  const breakableMessage = 4242n;
+  const breakableCiphertext = encrypt(breakableMessage, breakableKeyPair.publicKey).ciphertext;
+  const factorRun = factorSemiprime(breakableKeyPair.publicKey.N, DEFAULT_BUDGET);
+  assert(factorRun.factor !== null, '64-bit factoring gate failed');
+  const recovered = recoverPrivateKey(breakableKeyPair.publicKey, factorRun.factor as bigint);
+  assert(recovered.lambda === breakableKeyPair.privateKey.lambda, 'Recovered lambda gate failed');
+  assert(
+    decrypt(breakableCiphertext, keyPairFromRecovered(breakableKeyPair.publicKey, recovered)) === breakableMessage,
+    'Recovered-key decryption gate failed',
+  );
+  assert(
+    factorSemiprime(breakableKeyPair.publicKey.N, 50).factor === null,
+    'Factoring budget gate failed (a starved run must report no factor)',
+  );
+
+  // Malleability gate: the attack must succeed against an unauthenticated ballot
+  // box and be rejected by an authenticated one.
+  const ballotKey = await generateBallotKey();
+  const ballots = await sealBallots([1, 1, 0, 1, 0, 1, 0, 1, 1, 0], toyKeyPair.publicKey, ballotKey);
+  const forged = forgeBallot(ballots[2].ciphertext, 100n, toyKeyPair.publicKey);
+  ballots[2] = { ...ballots[2], ciphertext: forged.forgedCiphertext, tampered: true };
+
+  const unauthenticated = await runBallotBox(ballots, toyKeyPair.publicKey, ballotKey, false);
+  assert(decrypt(unauthenticated.encryptedTally, toyKeyPair) === 106n, 'Malleability attack gate failed');
+
+  const authenticated = await runBallotBox(ballots, toyKeyPair.publicKey, ballotKey, true);
+  assert(authenticated.rejected.length === 1, 'Encrypt-then-MAC rejection gate failed');
+  assert(decrypt(authenticated.encryptedTally, toyKeyPair) === 6n, 'Authenticated tally gate failed');
+
+  // The stepped decryption identity must agree with decrypt() on a real ciphertext.
+  const traced = traceDecryption(breakableCiphertext, breakableKeyPair);
+  assert(traced[traced.length - 1].value === breakableMessage, 'Decryption trace gate failed');
 
   console.log('All verification gates passed.');
 }

@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { modPow } from '../src/numbers';
 import {
   addCiphertexts,
   addPlaintext,
@@ -8,6 +9,7 @@ import {
   L,
   multiplyByScalar,
   rerandomize,
+  traceDecryption,
   type PaillierKeyPair,
 } from '../src/paillier';
 
@@ -104,5 +106,27 @@ describe('homomorphic operations', () => {
     const b = encrypt(5n, keyPair.publicKey);
     const sum = addCiphertexts(a.ciphertext, b.ciphertext, keyPair.publicKey);
     expect(decrypt(sum, keyPair)).toBe(3n); // (N - 2 + 5) mod N
+  });
+});
+
+describe('traceDecryption', () => {
+  it('lands on the same plaintext as decrypt()', () => {
+    const { ciphertext } = encrypt(4242n, keyPair.publicKey);
+    const steps = traceDecryption(ciphertext, keyPair);
+
+    expect(steps).toHaveLength(4);
+    expect(steps[steps.length - 1].value).toBe(decrypt(ciphertext, keyPair));
+    expect(steps[steps.length - 1].value).toBe(4242n);
+  });
+
+  it('performs the documented arithmetic at every step', () => {
+    const { ciphertext } = encrypt(7n, keyPair.publicKey);
+    const { N, N2 } = keyPair.publicKey;
+    const [c, u, l, m] = traceDecryption(ciphertext, keyPair);
+
+    expect(c.value).toBe(ciphertext % N2);
+    expect(u.value).toBe(modPow(c.value, keyPair.privateKey.lambda, N2));
+    expect(l.value).toBe((u.value - 1n) / N);
+    expect(m.value).toBe((l.value * keyPair.privateKey.mu) % N);
   });
 });

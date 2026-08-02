@@ -166,6 +166,40 @@ export function decrypt(
   return normalizeMod(lValue * mu, N);
 }
 
+export interface DecryptionStep {
+  label: string;
+  expression: string;
+  value: bigint;
+}
+
+/**
+ * The decryption identity, one arithmetic step at a time, on a real ciphertext.
+ * The page walks these so `m = L(c^λ mod N²) · μ mod N` is executed in front of
+ * the learner rather than quoted at them; the final step's value is exactly what
+ * `decrypt()` returns for the same input.
+ */
+export function traceDecryption(
+  ciphertext: bigint,
+  keyPair: PaillierKeyPair,
+): DecryptionStep[] {
+  const {
+    publicKey: { N, N2 },
+    privateKey: { lambda, mu },
+  } = keyPair;
+
+  const c = normalizeMod(ciphertext, N2);
+  const u = modPow(c, lambda, N2);
+  const lValue = L(u, N);
+  const m = normalizeMod(lValue * mu, N);
+
+  return [
+    { label: 'The ciphertext, reduced mod N²', expression: 'c mod N²', value: c },
+    { label: 'Raise it to the private trapdoor λ', expression: 'u = c^λ mod N²', value: u },
+    { label: 'Apply L — subtract 1, divide by N exactly', expression: 'L(u) = (u − 1) / N', value: lValue },
+    { label: 'Scale by μ = λ⁻¹ mod N to undo the λ exponent', expression: 'm = L(u) · μ mod N', value: m },
+  ];
+}
+
 export function addCiphertexts(
   c1: bigint,
   c2: bigint,

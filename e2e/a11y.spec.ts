@@ -64,10 +64,25 @@ async function driveDemo(page: Page): Promise<void> {
   await expect(page.locator('#sum-result')).toContainText('overflow');
 
   await page.locator('#aggregation-form button[type="submit"]').click();
-  await expect(page.locator('#aggregation-result')).toContainText('aggregate total');
+  await expect(page.locator('#aggregation-result')).toContainText('decrypts to');
+  await expect(page.locator('#aggregation-table')).toBeVisible();
 
+  // Ballot scenario plus the malleability attack, so the ballot list and the
+  // attack result region are both populated when axe runs.
   await page.locator('#election-form button[type="submit"]').click();
-  await expect(page.locator('#election-result')).toContainText('Decrypted tally');
+  await expect(page.locator('#election-result')).toContainText('Honest tally');
+  await page.locator('#forge-ballot').click();
+  await expect(page.locator('#attack-result')).toContainText('rigged');
+
+  // Walk the decryption identity so the stepper list renders.
+  for (let step = 1; step <= 4; step += 1) {
+    await page.locator('#step-decrypt').click();
+    await expect(page.locator('#stepper-list li')).toHaveCount(step);
+  }
+
+  // Factor the 64-bit modulus so the recovered-key report is scanned too.
+  await page.locator('#factor-key').click();
+  await expect(page.locator('#factor-result')).toContainText('Factored.', { timeout: 60_000 });
 }
 
 async function scan(page: Page): Promise<void> {

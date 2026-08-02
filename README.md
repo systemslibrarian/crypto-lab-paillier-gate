@@ -24,7 +24,12 @@ To make the homomorphic "magic" observable rather than asserted, the demo also i
 - A **"same message, different ciphertext"** stack (an *Encrypt again* button) that visualizes semantic security: identical plaintexts yield visibly different ciphertexts. Each row is decrypted with the private key as it is added and captioned with that decryption, so "they all decrypt to the same value" is shown rather than asserted.
 - A **re-randomize** control that folds a fresh `rᴺ` factor into an existing ciphertext using only the public key — the ciphertext changes completely, the plaintext does not, and the new row's caption is the real decryption of the refreshed ciphertext.
 - An **interactive modulus-overflow preset** that forces an encrypted sum past `N` so you can watch decryption silently wrap to the wrong value, with a callout explaining the plaintext-space bound.
+- A **factoring attack on the key you just generated**: a real Pollard rho (Brent's variant) runs in a worker against `N` under a fixed 12,000,000-step budget. On a 64-bit modulus it splits `N` in a few hundred thousand modular squarings, rebuilds `λ = lcm(p−1, q−1)` from the recovered primes, checks that against the private `λ` the keygen worker produced, and decrypts your Step 2 ciphertext with the key it just derived. At larger sizes the same routine exhausts its budget and says so, printing the steps and milliseconds it actually burned. "Bigger is harder to factor" becomes a measurement rather than a caption on the bit-length selector.
+- A **stepped decryption**: press once per operation to walk `c → u = c^λ mod N² → L(u) = (u−1)/N → m = L(u)·μ mod N` on the live ciphertext, with the final step cross-checked against what `decrypt()` returns for the same input.
+- A **malleability attack on a sealed ballot** (Scenario B). The attacker encrypts a boost under the *public* key, multiplies it into another voter's ciphertext, and the tally decrypts that much higher — plus a toggle that turns on Encrypt-then-MAC, so the ballot box re-derives each HMAC-SHA256 tag over the ciphertext it received and drops the forged one. Both outcomes are computed in the browser, and the attack function only ever receives the public key.
 - **Plain-language glosses** on the `N`, `g`, and `λ` metric cards and a collapsible *What's happening under the hood* panel carrying the key-generation and encryption math onto the page.
+
+The two scenarios make deliberately different arguments. Scenario A is confidentiality: it runs both the plain sum `∏ Enc(xᵢ)` and the weighted sum `∏ Enc(xᵢ)^wᵢ`, printing each row's `Enc(x)^w` contribution and checking both totals against the plaintext arithmetic they claim to reproduce. Scenario B is integrity: the same algebra, turned against the voter.
 
 ## What Can Go Wrong
 
@@ -68,10 +73,16 @@ All arithmetic uses native `BigInt`, randomness comes from the Web Crypto API (`
 ## Testing and Verification
 
 ```bash
-npm test       # Vitest unit suite (number theory, Paillier core, scenarios)
-npm run verify # End-to-end verification gate, including a 2048-bit round-trip
-npm run check  # Typecheck + tests + verify (the full local gate)
+npm test         # Vitest unit suite (number theory, Paillier core, factoring, ballots, scenarios)
+npm run verify   # End-to-end verification gate, including a 2048-bit round-trip,
+                 # the 64-bit factoring break, and the ballot forgery with and without MAC
+npm run check    # Typecheck + tests + verify (the full local gate)
+npm run test:a11y # Playwright: WCAG A/AA scan plus functional gates on every exhibit
 ```
+
+The Playwright suite is not only an accessibility scan: `e2e/exhibits.spec.ts` drives the real page and
+asserts the computed outcome of each exhibit, including the paths where an attack is supposed to fail —
+the 192-bit factoring run that must give up, and the forged ballot that Encrypt-then-MAC must reject.
 
 Every push and pull request runs the typecheck, build, unit tests, and verification gate in GitHub Actions; the GitHub Pages deploy only runs after that gate passes.
 
