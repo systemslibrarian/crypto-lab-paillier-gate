@@ -12,7 +12,10 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'list' : [['list'], ['html', { open: 'never' }]],
   webServer: {
-    command: 'npm run preview -- --port 4264 --strictPort',
+    // Build before serving: preview serves dist/, so without this a run can test a
+    // stale bundle, and a FAILED build leaves the last good bundle in place and
+    // passes green against source that no longer compiles.
+    command: 'npm run build && npm run preview -- --port 4264 --strictPort',
     url: 'http://localhost:4264/crypto-lab-paillier-gate/',
     reuseExistingServer: !process.env.CI,
   },
