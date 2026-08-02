@@ -8,6 +8,26 @@ import { expect, test, type Page } from '@playwright/test';
  * fail.
  */
 
+/**
+ * Open the page with motion neutralized.
+ *
+ * The stepped-decryption exhibit appends a row per step, and the stylesheet
+ * uses smooth scrolling plus a hero rise-in animation. Under load the button
+ * could still be mid-reflow when Playwright clicked, and the click failed with
+ * "element is outside of the viewport" — a layout race, not a defect in the
+ * exhibit. Two of three full runs failed this way before this helper existed.
+ */
+async function open(page: Page): Promise<void> {
+  await page.goto('.');
+  await page.addStyleTag({
+    content: `*,*::before,*::after{
+      animation-duration:0s!important;animation-delay:0s!important;
+      transition-duration:0s!important;transition-delay:0s!important;
+      scroll-behavior:auto!important;
+    }`,
+  });
+}
+
 async function generateKey(page: Page, bits: string): Promise<void> {
   await page.selectOption('#bit-length', bits);
   await page.locator('#generate-key').click();
@@ -17,7 +37,7 @@ async function generateKey(page: Page, bits: string): Promise<void> {
 
 test.describe('factoring the modulus', () => {
   test('recovers lambda from a 64-bit N and opens the learner ciphertext', async ({ page }) => {
-    await page.goto('.');
+    await open(page);
     await generateKey(page, '64');
 
     await page.locator('#plaintext-input').fill('4242');
@@ -36,7 +56,7 @@ test.describe('factoring the modulus', () => {
   });
 
   test('runs out of budget on a 192-bit N and says so', async ({ page }) => {
-    await page.goto('.');
+    await open(page);
     await generateKey(page, '192');
 
     await page.locator('#factor-key').click();
@@ -49,7 +69,7 @@ test.describe('factoring the modulus', () => {
 });
 
 test('steps the decryption identity to the plaintext', async ({ page }) => {
-  await page.goto('.');
+  await open(page);
   await generateKey(page, '64');
 
   await page.locator('#plaintext-input').fill('777');
@@ -57,7 +77,11 @@ test('steps the decryption identity to the plaintext', async ({ page }) => {
   await expect(page.locator('#decrypt-input')).not.toHaveValue('');
 
   for (let step = 1; step <= 4; step += 1) {
-    await page.locator('#step-decrypt').click();
+    const stepBtn = page.locator('#step-decrypt');
+    // Each step appends a row, so the button moves; bring it back into view
+    // before clicking rather than relying on the auto-scroll landing settled.
+    await stepBtn.scrollIntoViewIfNeeded();
+    await stepBtn.click();
     await expect(page.locator('#stepper-list li')).toHaveCount(step);
   }
 
@@ -76,7 +100,7 @@ test('steps the decryption identity to the plaintext', async ({ page }) => {
 
 test.describe('ballot malleability', () => {
   test('an unauthenticated ballot box accepts a rigged tally', async ({ page }) => {
-    await page.goto('.');
+    await open(page);
     await generateKey(page, '64');
 
     await page.locator('#election-form button[type="submit"]').click();
@@ -98,7 +122,7 @@ test.describe('ballot malleability', () => {
   });
 
   test('Encrypt-then-MAC rejects the same forged ballot', async ({ page }) => {
-    await page.goto('.');
+    await open(page);
     await generateKey(page, '64');
 
     await page.locator('#election-form button[type="submit"]').click();
@@ -119,7 +143,7 @@ test.describe('ballot malleability', () => {
   });
 
   test('a fresh keypair clears the ballot box', async ({ page }) => {
-    await page.goto('.');
+    await open(page);
     await generateKey(page, '64');
     await page.locator('#election-form button[type="submit"]').click();
     await expect(page.locator('#ballot-attack')).toBeVisible();
@@ -131,7 +155,7 @@ test.describe('ballot malleability', () => {
 });
 
 test('weighted aggregation reports both homomorphisms against the plaintext arithmetic', async ({ page }) => {
-  await page.goto('.');
+  await open(page);
   await generateKey(page, '96');
 
   await page.locator('#aggregation-form button[type="submit"]').click();
