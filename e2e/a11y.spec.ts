@@ -19,7 +19,6 @@ async function prepare(page: Page): Promise<void> {
       animation-delay: 0s !important;
       transition-duration: 0s !important;
       transition-delay: 0s !important;
-      opacity: 1 !important;
     }`,
   });
   await page.evaluate(() => {
