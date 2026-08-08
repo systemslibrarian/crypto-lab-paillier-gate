@@ -10,7 +10,10 @@
   --ink: #f1f7f8;
   --muted: #a8bcc1;
   --accent: #56d5c3;
-  --accent-strong: #2e9f93;
+  /* Lightened from #2e9f93: --accent-strong is text-only (13 uses, none as a
+     fill) and measured 4.07:1 as the hero label on the accent-tinted card,
+     then 4.45:1 as the ghost-button label on the darker stepper panel. */
+  --accent-strong: #4dbcaf;
   --warm: #f0b25e;
   --success: #78d6a4;
   --error: #ff9a8f;
@@ -31,7 +34,10 @@ html[data-theme='light'] {
   --border: rgba(52, 72, 78, 0.16);
   --field-border: #6e7f83;
   --ink: #13262d;
-  --muted: #55656a;
+  /* Darkened from #55656a: --muted is a text-only token (19 uses, none as a
+     fill) and measured 3.77:1 on the page background, which is a warmer,
+     darker surface than the --panel it was tuned against. */
+  --muted: #45535a;
   --accent: #0f7c73;
   --accent-strong: #0b5f58;
   --warm: #c9752c;
@@ -138,7 +144,9 @@ textarea {
 .cl-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:clamp(1rem,4vw,3rem);flex-wrap:wrap;margin:clamp(1rem,3vw,2rem) 0 1.5rem;animation:rise-in 420ms ease-out;}
 .cl-hero-main{flex:1 1 22rem;min-width:min(100%,20rem);}
 .cl-hero-title{margin:0;font-size:clamp(1.6rem,3.8vw,2.7rem);font-weight:700;line-height:1.1;letter-spacing:.01em;color:var(--ink);}
-.cl-hero-sub{margin:.4rem 0 0;font-size:clamp(.9rem,1.6vw,1.05rem);letter-spacing:.01em;color:var(--muted);opacity:.85;}
+/* No `opacity` here: --muted is already the muted step, and fading it a
+   further 85% on the page background landed the subtitle at 2.96:1. */
+.cl-hero-sub{margin:.4rem 0 0;font-size:clamp(.9rem,1.6vw,1.05rem);letter-spacing:.01em;color:var(--muted);}
 .cl-hero-desc{margin:.55rem 0 0;font-size:1rem;line-height:1.5;color:var(--muted);max-width:60ch;}
 .cl-hero-why{flex:0 1 min(40%,26rem);min-width:min(100%,15rem);border:1px solid color-mix(in srgb, var(--accent) 30%, transparent);border-radius:10px;padding:.85rem 1.05rem;background:color-mix(in srgb, var(--accent) 12%, var(--panel-strong));}
 .cl-hero-why-label{display:block;font-size:.68rem;font-weight:700;letter-spacing:.14em;color:var(--accent-strong);}
@@ -407,6 +415,18 @@ h2 {
   border-color: rgba(161, 59, 44, 0.24);
   background: rgba(251, 234, 229, 0.94);
   color: #872f22;
+}
+
+/* A tone box is deliberately light in BOTH themes (see above), so anything
+   nested inside it must inherit that box's dark ink. `.attack-block code` and
+   friends re-apply `var(--ink)`, which in dark theme is near-white and put the
+   forged ciphertexts at 1.26:1 on the pink error box — invisible exactly where
+   the exhibit wants them read. */
+.result-box[data-tone] code,
+.result-box[data-tone] strong,
+.result-box[data-tone] .section-copy {
+  color: inherit;
+  background: color-mix(in srgb, currentColor 10%, transparent);
 }
 
 .command-note {
