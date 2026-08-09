@@ -18,14 +18,18 @@ import { expect, test, type Page } from '@playwright/test';
  * exhibit. Two of three full runs failed this way before this helper existed.
  */
 async function open(page: Page): Promise<void> {
+  // Ask for reduced motion the way a reader does, rather than forcing it with
+  // a style tag. This lab's own `@media (prefers-reduced-motion: reduce)` block
+  // already collapses every duration to 0.001ms, so the flake control is
+  // identical — but it now comes from the page instead of from the test, which
+  // means this suite exercises the rendering a reduced-motion visitor actually
+  // gets AND fails if that block ever stops working. Must precede `goto`.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('.');
-  await page.addStyleTag({
-    content: `*,*::before,*::after{
-      animation-duration:0s!important;animation-delay:0s!important;
-      transition-duration:0s!important;transition-delay:0s!important;
-      scroll-behavior:auto!important;
-    }`,
-  });
+  expect(
+    await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches),
+    'reduced-motion emulation must actually be in effect'
+  ).toBe(true);
 }
 
 async function generateKey(page: Page, bits: string): Promise<void> {
