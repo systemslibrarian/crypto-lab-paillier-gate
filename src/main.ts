@@ -119,7 +119,7 @@ app.innerHTML = `
         <article class="metric-card">
           <span class="metric-label">Modulus bits</span>
           <strong id="metric-bits">-</strong>
-          <span class="metric-gloss">size of N in bits — bigger is harder to factor</span>
+          <span class="metric-gloss">size of N in bits — bigger is harder to factor. p and q are each exactly half the length you selected, so N = p·q lands on that length or one bit under it: a "96-bit" selection reads 95 here about a quarter of the time, and the security that matters is the 48-bit primes either way.</span>
         </article>
         <article class="metric-card">
           <span class="metric-label">Public modulus N</span>
@@ -600,6 +600,11 @@ function updateControlState(): void {
   // needs an existing ciphertext to refresh.
   encryptAgainButton.disabled = !activeKeyPair || isGenerating || semanticMessage === null;
   rerandomizeButton.disabled = !activeKeyPair || isGenerating || lastEncryption === null;
+  // Same guard as re-randomize, and for the same reason: there is nothing to
+  // hand off until something has been encrypted. Its handler already returned
+  // early without it, so with a key loaded and nothing encrypted this was an
+  // enabled button whose click produced no ciphertext, no slot, and no message.
+  addToLedgerButton.disabled = !activeKeyPair || isGenerating || lastEncryption === null;
   factorButton.disabled = !activeKeyPair || isGenerating || isFactoring;
   factorButton.setAttribute('aria-busy', String(isFactoring));
   // Nothing left to step once the trace for the ciphertext currently in the box
@@ -659,6 +664,7 @@ keygenWorker.addEventListener('message', (event: MessageEvent<WorkerMessage>) =>
     resetLedger();
     resetStepper();
     resetBallots();
+    resetAggregation();
     setResultBox(factorResult, 'Key is fresh. Try to factor N and rebuild λ from it.', 'success');
     setResultBox(aggregationResult, 'Run a hospital-style aggregation or weighted total with the new keypair.', 'success');
     setResultBox(electionResult, 'Run an encrypted binary vote tally with the new keypair.', 'success');
@@ -695,6 +701,7 @@ keyForm.addEventListener('submit', (event) => {
   resetLedger();
   resetStepper();
   resetBallots();
+  resetAggregation();
   setProgress('Dispatching key generation worker...', 2);
 
   const request: GenerateRequest = {
@@ -888,6 +895,17 @@ function clearSlots(): void {
   sumSourceNote.innerHTML = 'Tip: in Step 2, hit <em>Send this ciphertext to Step 3</em> to add a ciphertext you made yourself into slot A or B.';
 }
 
+/**
+ * The ciphertext that produced whatever "Decrypted value:" is on screen.
+ *
+ * The verdict does not echo its input, so it read as a statement about the box
+ * above it. Pasting a different ciphertext left "Decrypted value: 42" standing
+ * for a ciphertext that was no longer there — and the stepper immediately
+ * below, which IS keyed on the ciphertext, correctly started a new trace, so
+ * two adjacent panels described two different ciphertexts at the same moment.
+ */
+let decryptedFrom: string | null = null;
+
 decryptForm.addEventListener('submit', (event) => {
   event.preventDefault();
 
@@ -896,12 +914,14 @@ decryptForm.addEventListener('submit', (event) => {
     const ciphertext = parseNonNegativeBigInt(decryptInput.value, 'Ciphertext');
     const plaintext = decrypt(ciphertext, keyPair);
 
+    decryptedFrom = ciphertext.toString();
     setResultBox(
       decryptResult,
       `Decrypted value: <strong>${plaintext.toString()}</strong>`,
       'success',
     );
   } catch (error) {
+    decryptedFrom = null;
     setResultBox(decryptResult, error instanceof Error ? error.message : 'Decryption failed.', 'error');
   }
 });
@@ -1082,6 +1102,23 @@ aggregationForm.addEventListener('submit', (event) => {
   }
 });
 
+/**
+ * Retire the per-row aggregation breakdown.
+ *
+ * A fresh keypair returned five result boxes to placeholders, hid the semantic
+ * stack, the sum ledger and the ballot box — and left this table standing. Its
+ * "Enc(x)^w mod N² (truncated)" column then showed ciphertexts computed under
+ * the PREVIOUS modulus (regenerate at a different bit length and they are not
+ * even the right length), under a caption reading "Per-row contribution to the
+ * weighted total", directly beside a result box saying "Run a hospital-style
+ * aggregation or weighted total with the new keypair." It was the one panel a
+ * new key did not clear.
+ */
+function resetAggregation(): void {
+  aggregationTable.hidden = true;
+  aggregationRows.innerHTML = '';
+}
+
 function resetBallots(): void {
   ballotState = null;
   ballotAttack.hidden = true;
@@ -1207,6 +1244,24 @@ forgeButton.addEventListener('click', () => {
         + `${target.voterId} voted.`;
 
       if (authenticate) {
+        // What dropping the rejected ballots actually cost the tally. This USED
+        // to be asserted as "It is below the honest N" unconditionally — false
+        // whenever the rewritten ballot carried a 0 vote, which is 4 of the 10
+        // targets selectable in the shipped ballot list. A rejected 0 vote costs
+        // the tally nothing, so the honest total is unchanged and the sentence
+        // contradicted the number printed one clause earlier.
+        const lost = ballotState.honestTally - newTally;
+        const costLine = lost > 0n
+          ? `It is ${lost.toString()} below the honest ${ballotState.honestTally.toString()}: the `
+            + `${box.rejected.length} rejected ballot(s) carried ${lost.toString()} vote(s) of their own, and those `
+            + `went out with the forgery. Authentication stops forgery, it does not repair a lost ballot.`
+          : lost === 0n
+            ? `It is exactly the honest ${ballotState.honestTally.toString()} — the rejected ballot(s) carried 0 votes, `
+              + `so dropping them cost the tally nothing. Pick a voter who voted 1 and run it again to see the other `
+              + `case: authentication stops forgery, it does not repair a lost ballot.`
+            : `It is ${(-lost).toString()} ABOVE the honest ${ballotState.honestTally.toString()}, which should not `
+              + `happen when every ballot is a 0 or a 1 — treat this as a bug in the exhibit.`;
+
         setResultBox(
           attackResult,
           [
@@ -1215,8 +1270,7 @@ forgeButton.addEventListener('click', () => {
               + `received: <code>${recomputedTag.slice(0, 24)}…</code> ≠ sealed <code>${target.tag.slice(0, 24)}…</code>. `
               + `${box.rejected.length} ballot(s) rejected, ${box.accepted.length} counted.`,
             `Tally over the accepted ballots decrypts to <strong>${newTally.toString()}</strong> — the rigged +${boost.toString()} `
-              + `never landed. It is below the honest ${ballotState.honestTally.toString()} because the rejected ballot's own `
-              + `vote was dropped with it; authentication stops forgery, it does not repair a lost ballot.`,
+              + `never landed. ${costLine}`,
           ].join('<br /><br />'),
           'success',
         );
@@ -1345,7 +1399,13 @@ factorWorker.addEventListener('message', (event: MessageEvent<FactorWorkerMessag
   try {
     const keyPair = requireKeyPair();
     const bits = keyPair.publicKey.bitLength;
-    const expected = expectedIterations(bits);
+    // The size of the prime the search is actually hunting, read off the key
+    // rather than assumed to be half of N. p and q are generated at exactly
+    // floor(requested/2) bits each, but N is p·q and lands on the requested
+    // width or one bit under it, so floor(bits/2) named a prime size the key
+    // did not have in 87 of 200 keygens across the five shipped sizes.
+    const primeBits = keyPair.privateKey.p.toString(2).length;
+    const expected = expectedIterations(primeBits);
     const rate = ms > 0 ? Math.round(iterations / (ms / 1000)) : iterations;
 
     if (!factor || gaveUp) {
@@ -1355,7 +1415,8 @@ factorWorker.addEventListener('message', (event: MessageEvent<FactorWorkerMessag
           `<strong>Gave up.</strong> ${iterations.toLocaleString('en-US')} modular squarings in ${ms} ms `
             + `(~${rate.toLocaleString('en-US')}/s) did not split this ${bits}-bit N.`,
           `Pollard rho needs about 1.18·√p ≈ <strong>${Math.round(expected).toLocaleString('en-US')}</strong> steps for a `
-            + `${Math.floor(bits / 2)}-bit prime, and the budget here is ${DEFAULT_BUDGET.toLocaleString('en-US')}. `
+            + `${primeBits}-bit prime — and this N's primes are ${primeBits} bits each — while the budget here is `
+            + `${DEFAULT_BUDGET.toLocaleString('en-US')}. `
             + `Drop to 64-bit and the same code finishes instantly. Every extra 4 bits of N doubles that expected work — `
             + `which is the entire argument for 2048-bit moduli, at which √p is around 2<sup>512</sup>.`,
         ].join('<br /><br />'),
@@ -1408,7 +1469,39 @@ factorButton.addEventListener('click', () => {
   }
 });
 
-// The stepper only makes sense once there is a ciphertext to walk.
-decryptInput.addEventListener('input', updateControlState);
+// The stepper only makes sense once there is a ciphertext to walk — and the
+// decrypt verdict only describes the ciphertext that produced it.
+decryptInput.addEventListener('input', () => {
+  updateControlState();
+  if (decryptedFrom !== null && decryptInput.value.trim() !== decryptedFrom) {
+    decryptedFrom = null;
+    setResultBox(
+      decryptResult,
+      'Ciphertext changed. Press <em>Decrypt ciphertext</em> to decode the one in the box now.',
+      'neutral',
+    );
+  }
+});
+
+/**
+ * Retire the attack verdict when the controls it describes move.
+ *
+ * The panel's own copy tells the reader to "turn on the tag check above and run
+ * the same attack again", so the toggle is an expected move — and between the
+ * toggle and the next press the box still read "The tally is rigged … The
+ * ballot box accepted all 10 ballots because it checked nothing" with the
+ * verify-tags box visibly ticked. Same for retargeting the attack or changing
+ * the boost: the verdict names a voter and a vote count that are no longer the
+ * ones selected.
+ */
+function invalidateAttackVerdict(): void {
+  if (ballotState && attackResult.textContent !== 'Nothing forged yet.') {
+    setResultBox(attackResult, 'Nothing forged yet.', 'neutral');
+  }
+}
+
+attackAuthenticate.addEventListener('change', invalidateAttackVerdict);
+attackTarget.addEventListener('change', invalidateAttackVerdict);
+attackBoost.addEventListener('input', invalidateAttackVerdict);
 
 updateControlState();

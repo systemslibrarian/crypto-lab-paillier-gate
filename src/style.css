@@ -21,6 +21,24 @@
   color: var(--ink);
 }
 
+/**
+ * The `hidden` attribute must actually hide.
+ *
+ * The UA rule is `[hidden] { display: none }`, an attribute selector that any
+ * class rule setting `display` outranks. `.ledger { display: grid }` and
+ * `.handoff { display: flex }` both did, so `#sum-ledger` (542x361) and
+ * `#encrypt-handoff` (542x84) rendered from first paint with `hidden` set — a
+ * homomorphic-addition ledger reading "Enc(A) x mod N² Enc(B) = product
+ * ciphertext decrypt →" with every value slot empty, and a "Send this
+ * ciphertext to Step 3 →" button offering to hand off a ciphertext that did not
+ * exist. Every reset path called `.hidden = true` on them and silently did
+ * nothing. The four other panels using the same attribute were fine, which is
+ * exactly why this went unnoticed.
+ */
+[hidden] {
+  display: none !important;
+}
+
 html[data-theme='dark'] {
   color-scheme: dark;
 }

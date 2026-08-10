@@ -68,8 +68,39 @@ describe('recoverPrivateKey', () => {
 });
 
 describe('expectedIterations', () => {
-  it('grows by 2^32 when the modulus grows by 128 bits', () => {
-    const ratio = expectedIterations(192) / expectedIterations(64);
+  // It takes the PRIME's bit length now, not the modulus'. A 192-bit modulus is
+  // built from 96-bit primes and a 64-bit one from 32-bit primes, so the same
+  // ratio holds — but it is now expressed in the quantity the page prints
+  // beside the number, which is what stopped the two halves of that sentence
+  // from disagreeing with each other.
+  it('grows by 2^32 when the prime grows by 64 bits', () => {
+    const ratio = expectedIterations(96) / expectedIterations(32);
     expect(ratio).toBeCloseTo(2 ** 32, -5);
+  });
+
+  it('is 1.18·sqrt(p), the figure the page quotes', () => {
+    for (const primeBits of [32, 47, 48, 64, 96]) {
+      expect(expectedIterations(primeBits)).toBeCloseTo(1.18 * Math.sqrt(2 ** primeBits), -5);
+    }
+  });
+
+  /**
+   * REGRESSION: the page printed "≈ N steps for a K-bit prime" with N derived
+   * from the MODULUS size and K = floor(modulusBits / 2). N is p·q with p and q
+   * of exactly half the requested width, so it lands on the requested width or
+   * one bit under it — 87 of 200 keygens across the five shipped sizes. In the
+   * short case the sentence's two halves disagreed with each other: a 95-bit N
+   * printed "≈ 16.6M steps for a 47-bit prime", where 1.18·sqrt(2^47) is 14.0M
+   * and the real primes were 48 bits (19.8M).
+   */
+  it('the estimate matches the prime size printed beside it, for a short modulus', async () => {
+    const keyPair = await generateKeyPair(96);
+    const primeBits = keyPair.privateKey.p.toString(2).length;
+    expect(primeBits).toBe(48);
+    expect(keyPair.privateKey.q.toString(2).length).toBe(48);
+    // The modulus is allowed to come out a bit short; the prime size is not.
+    expect(keyPair.publicKey.bitLength).toBeGreaterThanOrEqual(95);
+    expect(keyPair.publicKey.bitLength).toBeLessThanOrEqual(96);
+    expect(expectedIterations(primeBits)).toBeCloseTo(1.18 * 2 ** 24, -5);
   });
 });

@@ -172,11 +172,17 @@ export function keyPairFromRecovered(
 }
 
 /**
- * Expected modular squarings to find the smaller factor of a balanced
- * semiprime of the given modulus bit length: about 1.18·sqrt(p) with
- * p ≈ 2^(bits/2). Used only to put the measured number in context — the page
- * always reports what the run actually did alongside it.
+ * Expected modular squarings to find a prime factor of the given bit length:
+ * about 1.18·sqrt(p) with p ≈ 2^primeBits. Used only to put the measured number
+ * in context — the page always reports what the run actually did alongside it.
+ *
+ * This takes the PRIME's bit length, not the modulus'. It used to take the
+ * modulus and assume p was exactly half of it, which is wrong whenever N comes
+ * out a bit short of 2·primeBits — 87 of 200 keygens across the five shipped
+ * sizes. The page printed both halves of the estimate, and they then disagreed
+ * with each other: a 95-bit N gave "≈ 16.6M steps for a 47-bit prime", while
+ * 1.18·sqrt(2^47) is 14.0M and the real primes were 48 bits (19.8M).
  */
-export function expectedIterations(modulusBits: number): number {
-  return 1.18 * Math.pow(2, modulusBits / 4);
+export function expectedIterations(primeBits: number): number {
+  return 1.18 * Math.pow(2, primeBits / 2);
 }
