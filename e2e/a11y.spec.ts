@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import { boot, driveAllStates, NARROW } from './gate';
+import { boot, driveAllStates, expectBaselineNotStale, NARROW } from './gate';
 
 /**
  * WCAG A/AA regression gate.
@@ -25,3 +25,34 @@ for (const theme of ['dark', 'light'] as const) {
     await driveAllStates(page, `${theme} @380px`);
   });
 }
+
+/**
+ * The non-text baseline's third rule, which had never run.
+ *
+ * `nontext-baseline.ts` claims three: a finding not listed fails, a listed
+ * finding that got WORSE fails, and a listed finding that has been FIXED fails
+ * until its entry is deleted. The first two live in
+ * `expectNoNewNonTextFailures` and fire from every `scan` above. The third is
+ * `expectBaselineNotStale`, which was exported and never imported — so the
+ * baseline could only ever grow.
+ *
+ * It gets its own test, driving BOTH themes itself, and that is the whole
+ * point rather than a tidiness preference. The baseline is keyed by selector
+ * alone, so it is a UNION over the themes — and the four `.button` entries are
+ * light-theme findings: measured through the gate's own capture path, the
+ * boundary of `#generate-key`, `#factor-key`, `#forge-ballot` and `button.button`
+ * clears 3:1 against the dark surface and only fails against the light one
+ * (1.89-2.02:1). `nonTextSeen` is module state, so a call tacked onto the
+ * per-theme tests asks the dark worker about findings only the light worker can
+ * see, and it reported all four as stale on every run. That was measured, not
+ * assumed, and it is a false stale: nothing has been fixed. Only a pass that
+ * covers both themes can decide the question the rule actually asks.
+ */
+test('the non-text baseline has no stale entries', async ({ page }) => {
+  test.setTimeout(900_000);
+  for (const theme of ['dark', 'light'] as const) {
+    await boot(page, theme);
+    await driveAllStates(page, `stale sweep / ${theme}`);
+  }
+  expectBaselineNotStale();
+});
