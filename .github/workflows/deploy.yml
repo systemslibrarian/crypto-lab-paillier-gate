@@ -54,7 +54,7 @@ jobs:
 
   deploy:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -76,6 +76,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write   # required by the deploy dispatch; without it gh workflow run 403s
     steps:
       - id: meta
         uses: dependabot/fetch-metadata@v3
