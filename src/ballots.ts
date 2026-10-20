@@ -31,10 +31,32 @@ export async function generateBallotKey(): Promise<CryptoKey> {
   return crypto.subtle.generateKey({ name: 'HMAC', hash: 'SHA-256' }, true, ['sign', 'verify']);
 }
 
+/**
+ * HMAC-SHA-256 over arbitrary bytes, hex encoded.
+ *
+ * Exported so RFC 4231's published vectors can be asserted THROUGH this lab's own MAC
+ * rather than against `crypto.subtle` beside it. An assertion on subtle would test
+ * WebCrypto and say nothing about this file: in `crypto-lab-bike-vault` exactly that
+ * test let a mutation switching the lab's digest to SHA-1 go uncaught.
+ *
+ * Every test in `tests/ballots.test.ts` before this went through `tagCiphertext` on both
+ * sides — seal a ballot, verify the tag, tamper, verify again — so the hash and the
+ * encoding could both have been wrong with every one of them still green.
+ */
+export async function hmacSha256(
+  key: CryptoKey,
+  /* Uint8Array<ArrayBuffer> rather than a bare Uint8Array: since TypeScript 5.7 the
+     typed arrays are generic over their buffer, and `BufferSource` admits only the
+     ArrayBuffer instantiation — a bare Uint8Array is Uint8Array<ArrayBufferLike>, which
+     could be backed by a SharedArrayBuffer. */
+  data: Uint8Array<ArrayBuffer>,
+): Promise<string> {
+  return toHex(await crypto.subtle.sign('HMAC', key, data));
+}
+
 /** HMAC-SHA256 over the decimal encoding of the ciphertext. */
 export async function tagCiphertext(ciphertext: bigint, key: CryptoKey): Promise<string> {
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(ciphertext.toString()));
-  return toHex(signature);
+  return hmacSha256(key, encoder.encode(ciphertext.toString()));
 }
 
 /**
