@@ -59,7 +59,7 @@ npm run dev
 
 - [crypto-lab-elgamal-plain](https://systemslibrarian.github.io/crypto-lab-elgamal-plain/) — ElGamal homomorphism and ciphertext re-randomization.
 - [crypto-lab-fhe-arena](https://systemslibrarian.github.io/crypto-lab-fhe-arena/) — BGV/BFV fully homomorphic encryption with SIMD batching.
-- [crypto-lab-threshold-decrypt](https://systemslibrarian.github.io/crypto-lab-threshold-decrypt/) — t-of-n threshold ElGamal decryption with NIZK proofs.
+- [crypto-lab-threshold-decrypt](https://systemslibrarian.github.io/crypto-lab-threshold-decrypt/#election) — a quorum opens the election total, with a 0-or-1 proof against dishonest voters. This lab instead uses one decryption key and a MAC against an outsider rewriting an honest ballot; that MAC cannot establish the voter's plaintext is a permitted vote.
 - [crypto-lab-silent-tally](https://systemslibrarian.github.io/crypto-lab-silent-tally/) — Shamir-based secure sum, an MPC alternative to HE aggregation.
 
 ## How It Works

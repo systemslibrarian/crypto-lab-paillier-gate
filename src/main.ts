@@ -368,6 +368,13 @@ app.innerHTML = `
 
         <div id="election-result" class="result-box" role="status" aria-live="polite">The encrypted tally will appear here.</div>
 
+        <p class="section-copy">
+          This scenario uses one decryption key and a MAC against an outsider rewriting an honest ballot.
+          A dishonest voter could authenticate an invalid vote herself; a MAC does not prove that the
+          plaintext is 0 or 1. Compare the <a href="https://systemslibrarian.github.io/crypto-lab-threshold-decrypt/#election">Threshold Decrypt election exhibit</a>,
+          where each voter supplies a 0-or-1 proof and a quorum opens only the aggregate tally.
+        </p>
+
         <div class="attack-block" id="ballot-attack" hidden>
           <h3 class="attack-title">Malleability attack</h3>
           <p class="section-copy">
