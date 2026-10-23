@@ -469,7 +469,9 @@ test('aggregation distinguishes a modular match from the unreduced total', async
 
   const modulus = BigInt((await page.locator('#metric-n').textContent()) ?? '0');
   await page.locator('#counts-input').fill(`${modulus - 1n}, 2`);
-  await page.locator('#weights-input').fill('');
+  // Keep the weighted total below N so the assertion below owns the ordinary
+  // sum's wrap label rather than passing on the second line's identical copy.
+  await page.locator('#weights-input').fill('0, 0');
   await page.locator('#aggregation-form button[type="submit"]').click();
 
   const result = page.locator('#aggregation-result');
