@@ -172,9 +172,10 @@ export function keyPairFromRecovered(
 }
 
 /**
- * Expected modular squarings to find a prime factor of the given bit length:
- * about 1.18·sqrt(p) with p ≈ 2^primeBits. Used only to put the measured number
- * in context — the page always reports what the run actually did alongside it.
+ * Birthday-model 50% collision point for a prime factor of the given bit
+ * length: about 1.18·sqrt(p) with p ≈ 2^primeBits. This is a heuristic context
+ * marker, not an expected or guaranteed run time; the page always reports what
+ * the actual bounded run did alongside it.
  *
  * This takes the PRIME's bit length, not the modulus'. It used to take the
  * modulus and assume p was exactly half of it, which is wrong whenever N comes

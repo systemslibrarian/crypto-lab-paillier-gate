@@ -5,6 +5,7 @@ import {
   hmacSha256,
   runBallotBox,
   sealBallots,
+  tagBallot,
   tagCiphertext,
   tallyBallots,
   verifyBallot,
@@ -46,6 +47,28 @@ describe('sealBallots', () => {
     for (const ballot of ballots) {
       expect(await verifyBallot(ballot, ballotKey)).toBe(true);
     }
+  });
+
+  it('keeps the ballot-box MAC key non-extractable', async () => {
+    const key = await generateBallotKey();
+    expect(key.extractable).toBe(false);
+    await expect(crypto.subtle.exportKey('raw', key)).rejects.toThrow();
+  });
+
+  it('binds the voter identity as well as the ciphertext', async () => {
+    const [ballot] = await sealBallots([1], keyPair.publicKey, ballotKey);
+    expect(await verifyBallot({ ...ballot, voterId: 'Voter 2' }, ballotKey)).toBe(false);
+    expect(await tagBallot('Voter 1', ballot.ciphertext, ballotKey)).not.toBe(
+      await tagBallot('Voter 2', ballot.ciphertext, ballotKey),
+    );
+  });
+
+  it('treats malformed tags as invalid instead of comparing strings', async () => {
+    const [ballot] = await sealBallots([1], keyPair.publicKey, ballotKey);
+    expect(await verifyBallot({ ...ballot, tag: 'not hex' }, ballotKey)).toBe(false);
+    expect(await verifyBallot({ ...ballot, tag: ballot.tag.slice(2) }, ballotKey)).toBe(false);
+    const bent = `${ballot.tag[0] === '0' ? '1' : '0'}${ballot.tag.slice(1)}`;
+    expect(await verifyBallot({ ...ballot, tag: bent }, ballotKey)).toBe(false);
   });
 });
 
@@ -107,6 +130,20 @@ describe('runBallotBox', () => {
 
     expect(box.rejected).toHaveLength(0);
     expect(decrypt(box.encryptedTally, keyPair)).toBe(HONEST_TALLY);
+  });
+
+  it('rejects a replayed voter identity under authentication', async () => {
+    const [ballot] = await sealBallots([1], keyPair.publicKey, ballotKey);
+    const box = await runBallotBox(
+      [ballot, { ...ballot }],
+      keyPair.publicKey,
+      ballotKey,
+      true,
+    );
+
+    expect(box.accepted).toHaveLength(1);
+    expect(box.rejected).toHaveLength(1);
+    expect(decrypt(box.encryptedTally, keyPair)).toBe(1n);
   });
 
   it('rejects a ballot re-tagged under a different MAC key', async () => {

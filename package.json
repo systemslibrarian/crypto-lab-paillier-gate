@@ -11,6 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:a11y": "playwright test",
+    "test:workflow": "node --test scripts/workflow-controls.test.mjs",
+    "test:mutations": "node scripts/claim-mutations.mjs",
     "verify": "tsx scripts/verify.ts",
     "check": "tsc --noEmit && vitest run && npm run verify",
     "test:publish-request": "node --test tests/publish-request.node.mjs"
