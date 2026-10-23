@@ -18,6 +18,7 @@ describe('simulatePrivateAggregation', () => {
     const scenario = simulatePrivateAggregation(counts, keyPair.publicKey);
     expect(scenario.hospitals).toHaveLength(counts.length);
     expect(scenario.hospitals[0].id).toBe('Hospital A');
+    expect(scenario.hospitals[0]).not.toHaveProperty('privateCount');
     expect(decrypt(scenario.encryptedTotal, keyPair)).toBe(90n);
   });
 });
