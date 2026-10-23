@@ -12,13 +12,14 @@ import { addCiphertexts, encrypt, type PaillierPublicKey } from './paillier';
 export interface SealedBallot {
   voterId: string;
   ciphertext: bigint;
-  /** Encrypt-then-MAC tag over the ciphertext bytes, hex encoded. */
+  /** HMAC over a domain-separated voter-id/ciphertext record, hex encoded. */
   tag: string;
   /** True once an attacker has multiplied something into this ciphertext. */
   tampered: boolean;
 }
 
 const encoder = new TextEncoder();
+const BALLOT_DOMAIN = 'paillier-gate-ballot-v1';
 
 function toHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
@@ -26,9 +27,29 @@ function toHex(buffer: ArrayBuffer): string {
     .join('');
 }
 
+function fromHex(value: string): Uint8Array<ArrayBuffer> | null {
+  if (!/^[0-9a-f]{64}$/i.test(value)) {
+    return null;
+  }
+
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function encodeBallot(voterId: string, ciphertext: bigint): Uint8Array<ArrayBuffer> {
+  if (!voterId || voterId.includes('\0')) {
+    throw new Error('Ballot voterId must be non-empty and must not contain NUL.');
+  }
+
+  return encoder.encode(`${BALLOT_DOMAIN}\0${voterId}\0${ciphertext.toString()}`);
+}
+
 /** Fresh per-election MAC key held by the ballot box, never by the attacker. */
 export async function generateBallotKey(): Promise<CryptoKey> {
-  return crypto.subtle.generateKey({ name: 'HMAC', hash: 'SHA-256' }, true, ['sign', 'verify']);
+  return crypto.subtle.generateKey({ name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 
 /**
@@ -59,14 +80,37 @@ export async function tagCiphertext(ciphertext: bigint, key: CryptoKey): Promise
   return hmacSha256(key, encoder.encode(ciphertext.toString()));
 }
 
+/** Bind a ballot's identity and ciphertext to this exhibit's protocol context. */
+export async function tagBallot(
+  voterId: string,
+  ciphertext: bigint,
+  key: CryptoKey,
+): Promise<string> {
+  return hmacSha256(key, encodeBallot(voterId, ciphertext));
+}
+
 /**
- * Verify a ballot's tag by recomputing it over the ciphertext as it stands now.
- * A tampered ciphertext produces a different tag, so this returns false — the
- * page never consults the `tampered` flag to decide.
+ * Verify a ballot's tag over its domain-separated voter identity and current
+ * ciphertext with Web Crypto. A changed identity or ciphertext returns false;
+ * the page never consults the `tampered` flag to decide.
  */
 export async function verifyBallot(ballot: SealedBallot, key: CryptoKey): Promise<boolean> {
-  const expected = await tagCiphertext(ballot.ciphertext, key);
-  return expected === ballot.tag;
+  const signature = fromHex(ballot.tag);
+
+  if (!signature) {
+    return false;
+  }
+
+  try {
+    return await crypto.subtle.verify(
+      'HMAC',
+      key,
+      signature,
+      encodeBallot(ballot.voterId, ballot.ciphertext),
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function sealBallots(
@@ -82,10 +126,11 @@ export async function sealBallots(
     }
 
     const { ciphertext } = encrypt(BigInt(vote), publicKey);
+    const voterId = `Voter ${index + 1}`;
     ballots.push({
-      voterId: `Voter ${index + 1}`,
+      voterId,
       ciphertext,
-      tag: await tagCiphertext(ciphertext, key),
+      tag: await tagBallot(voterId, ciphertext, key),
       tampered: false,
     });
   }
@@ -139,7 +184,7 @@ export interface BallotBoxResult {
 /**
  * What the ballot box does on receipt. With `authenticate` off it simply
  * multiplies everything it was handed — the attack goes through. With it on,
- * every tag is recomputed and mismatching ballots are dropped before the tally.
+ * invalid tags and repeated voter identifiers are dropped before the tally.
  */
 export async function runBallotBox(
   ballots: SealedBallot[],
@@ -149,13 +194,24 @@ export async function runBallotBox(
 ): Promise<BallotBoxResult> {
   const accepted: SealedBallot[] = [];
   const rejected: SealedBallot[] = [];
+  const acceptedVoters = new Set<string>();
 
   for (const ballot of ballots) {
-    if (!authenticate || (await verifyBallot(ballot, key))) {
+    if (!authenticate) {
       accepted.push(ballot);
-    } else {
-      rejected.push(ballot);
+      continue;
     }
+
+    const authentic = await verifyBallot(ballot, key);
+    const replayed = acceptedVoters.has(ballot.voterId);
+
+    if (!authentic || replayed) {
+      rejected.push(ballot);
+      continue;
+    }
+
+    acceptedVoters.add(ballot.voterId);
+    accepted.push(ballot);
   }
 
   return { accepted, rejected, encryptedTally: tallyBallots(accepted, publicKey) };

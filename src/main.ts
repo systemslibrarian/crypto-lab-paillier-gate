@@ -14,7 +14,7 @@ import {
   generateBallotKey,
   runBallotBox,
   sealBallots,
-  tagCiphertext,
+  tagBallot,
   type SealedBallot,
 } from './ballots';
 import {
@@ -24,6 +24,16 @@ import {
   recoverPrivateKey,
   type FactorResult,
 } from './factor';
+import {
+  MAX_AGGREGATION_VALUES,
+  MAX_DECIMAL_DIGITS,
+  MAX_VOTES,
+  parseBigIntList,
+  parseNonNegativeBigInt,
+  parseOptionalWeights,
+  parseVoteList,
+} from './input';
+import { isCurrentKeySession } from './session';
 import './style.css';
 
 type GenerateRequest = {
@@ -50,9 +60,9 @@ type ErrorMessage = {
 type WorkerMessage = ProgressMessage | SuccessMessage | ErrorMessage;
 
 type FactorWorkerMessage =
-  | { type: 'progress'; iterations: number }
-  | { type: 'done'; result: FactorResult }
-  | { type: 'error'; message: string };
+  | { type: 'progress'; requestId: number; iterations: number }
+  | { type: 'done'; requestId: number; result: FactorResult }
+  | { type: 'error'; requestId: number; message: string };
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -71,7 +81,7 @@ app.innerHTML = `
       <aside class="cl-hero-why" aria-label="Why it matters">
         <span class="cl-hero-why-label">WHY IT MATTERS</span>
         <p class="cl-hero-why-text">
-          It lets an aggregator tally private inputs it can never read: the raw values stay sealed and only the total comes out. That powers privacy-preserving voting, analytics, and billing where individual numbers must stay secret.
+          Paillier can let a separate aggregator combine ciphertexts without opening individual inputs. This single-page lesson intentionally holds learner inputs and the private key so it can verify the arithmetic; it models separated roles rather than creating that confidentiality boundary itself.
         </p>
       </aside>
     </header>
@@ -163,8 +173,9 @@ app.innerHTML = `
           </p>
           <p>
             A plaintext <code>m</code> is encrypted as <code>c = gᵐ · rᴺ mod N²</code> using fresh randomness
-            <code>r</code>, so the same message yields a different ciphertext every time (that is the
-            <strong>semantic security</strong> you will see in Step 2). Decryption recovers <code>m</code> with the
+            <code>r</code>, so the same message yields a different ciphertext every time. Step 2 illustrates that
+            required randomness; the scheme's semantic-security claim depends on the decisional composite residuosity
+            assumption, and a few sample ciphertexts cannot prove it. Decryption recovers <code>m</code> with the
             private values <code>λ = lcm(p−1, q−1)</code> and <code>μ = λ⁻¹ mod N</code> via
             <code>m = L(c^λ mod N²) · μ mod N</code>, where <code>L(x) = (x − 1) / N</code>.
           </p>
@@ -191,7 +202,7 @@ app.innerHTML = `
         <form id="encrypt-form" class="stack-form">
           <label class="field">
             <span>Plaintext message</span>
-            <input id="plaintext-input" inputmode="numeric" value="42" />
+            <input id="plaintext-input" inputmode="numeric" maxlength="${MAX_DECIMAL_DIGITS}" value="42" />
           </label>
           <div class="button-row">
             <button class="button" type="submit">Encrypt message</button>
@@ -219,7 +230,8 @@ app.innerHTML = `
             without knowing <code>m</code>. The ciphertexts differ completely, yet every one decrypts back to the same
             <code id="semantic-plaintext">m</code>. Each row below is decrypted with the private key as it is added, and
             the value shown is that decryption — not a repeat of what you typed. That visible gap between identical
-            input and different output <em>is</em> semantic security.
+            input and different output illustrates the randomness semantic security requires; it is not a proof of the
+            underlying decisional composite residuosity assumption.
           </p>
           <ol id="semantic-list" class="semantic-list" aria-label="Ciphertexts of the same plaintext"></ol>
         </div>
@@ -232,7 +244,7 @@ app.innerHTML = `
         <form id="decrypt-form" class="stack-form">
           <label class="field">
             <span>Ciphertext to decrypt</span>
-            <textarea id="decrypt-input" rows="4"></textarea>
+            <textarea id="decrypt-input" maxlength="${MAX_DECIMAL_DIGITS}" rows="4"></textarea>
           </label>
           <button class="button" type="submit">Decrypt ciphertext</button>
         </form>
@@ -265,11 +277,11 @@ app.innerHTML = `
         <form id="sum-form" class="stack-form">
           <label class="field">
             <span>Message A</span>
-            <input id="sum-a" inputmode="numeric" value="12" />
+            <input id="sum-a" inputmode="numeric" maxlength="${MAX_DECIMAL_DIGITS}" value="12" />
           </label>
           <label class="field">
             <span>Message B</span>
-            <input id="sum-b" inputmode="numeric" value="30" />
+            <input id="sum-b" inputmode="numeric" maxlength="${MAX_DECIMAL_DIGITS}" value="30" />
           </label>
           <div class="button-row">
             <button class="button" type="submit">Encrypt A, B and multiply</button>
@@ -315,8 +327,9 @@ app.innerHTML = `
             <h2>Weighted aggregation</h2>
           </div>
           <p class="section-copy">
-            Hospitals submit encrypted counts and the coordinator gets a total it can never attribute. This scenario is
-            about the <strong>second</strong> homomorphism: alongside the plain sum <code>∏ Enc(xᵢ)</code>, it raises each
+            This models hospitals encrypting counts for a separate coordinator. The teaching page still sees the values
+            you type and owns the private key so it can grade the arithmetic; it is not itself a confidentiality boundary.
+            The scenario is about the <strong>second</strong> homomorphism: alongside the plain sum <code>∏ Enc(xᵢ)</code>, it raises each
             ciphertext to a public weight — <code>∏ Enc(xᵢ)^wᵢ</code> — so multiplication by a known constant happens
             under encryption too. (Scenario B uses the same algebra as an attack.)
           </p>
@@ -325,11 +338,11 @@ app.innerHTML = `
         <form id="aggregation-form" class="stack-form">
           <label class="field">
             <span>Counts (comma separated)</span>
-            <textarea id="counts-input" rows="3">10, 25, 17, 8, 30</textarea>
+            <textarea id="counts-input" maxlength="${MAX_AGGREGATION_VALUES * (MAX_DECIMAL_DIGITS + 2)}" rows="3">10, 25, 17, 8, 30</textarea>
           </label>
           <label class="field">
             <span>Weights (optional, comma separated)</span>
-            <textarea id="weights-input" rows="2">1, 2, 3, 4, 5</textarea>
+            <textarea id="weights-input" maxlength="${MAX_AGGREGATION_VALUES * (MAX_DECIMAL_DIGITS + 2)}" rows="2">1, 2, 3, 4, 5</textarea>
           </label>
           <button class="button" type="submit">Aggregate encrypted counts</button>
         </form>
@@ -337,7 +350,7 @@ app.innerHTML = `
         <table class="breakdown" id="aggregation-table" hidden>
           <caption>Per-row contribution to the weighted total</caption>
           <thead>
-            <tr><th scope="col">Row</th><th scope="col">Count x</th><th scope="col">Weight w</th><th scope="col">Enc(x)^w mod N² (truncated)</th></tr>
+            <tr><th scope="col">Row</th><th scope="col">Learner input x (shown to verify)</th><th scope="col">Weight w</th><th scope="col">Enc(x)^w mod N² (truncated)</th></tr>
           </thead>
           <tbody id="aggregation-rows"></tbody>
         </table>
@@ -361,9 +374,9 @@ app.innerHTML = `
         <form id="election-form" class="stack-form">
           <label class="field">
             <span>Votes (0 or 1, comma separated)</span>
-            <textarea id="votes-input" rows="3">1, 1, 0, 1, 0, 1, 0, 1, 1, 0</textarea>
+            <textarea id="votes-input" maxlength="${MAX_VOTES * 3}" rows="3">1, 1, 0, 1, 0, 1, 0, 1, 1, 0</textarea>
           </label>
-          <button class="button" type="submit">Seal and tally ballots</button>
+          <button id="seal-ballots" class="button" type="submit">Seal and tally ballots</button>
         </form>
 
         <div id="election-result" class="result-box" role="status" aria-live="polite">The encrypted tally will appear here.</div>
@@ -379,8 +392,10 @@ app.innerHTML = `
           <h3 class="attack-title">Malleability attack</h3>
           <p class="section-copy">
             The attacker encrypts a boost under the <strong>public</strong> key and multiplies it into someone else's
-            ballot. They never see the vote and never hold <code>λ</code>. Encrypt-then-MAC is the fix: the ballot box
-            re-derives each tag over the ciphertext it received and drops any that no longer match.
+            ballot. They never see the vote and never hold <code>λ</code>. This demo's domain-separated MAC binds the
+            voter identifier and ciphertext, rejects duplicate identifiers, and blocks that outsider rewrite. It is
+            still not a complete election protocol: production systems also need voter authorization, replay defense
+            across elections, ballot-validity proofs, threshold decryption, auditability, and availability controls.
           </p>
           <div class="control-row">
             <label class="field compact-field">
@@ -389,7 +404,7 @@ app.innerHTML = `
             </label>
             <label class="field compact-field">
               <span>Votes to inject</span>
-              <input id="attack-boost" inputmode="numeric" value="100" />
+              <input id="attack-boost" inputmode="numeric" maxlength="${MAX_DECIMAL_DIGITS}" value="100" />
             </label>
           </div>
           <label class="checkbox-field">
@@ -423,60 +438,6 @@ function byId<T extends HTMLElement>(id: string): T {
   }
 
   return element as T;
-}
-
-function parseNonNegativeBigInt(value: string, fieldName: string): bigint {
-  const trimmed = value.trim();
-
-  if (!trimmed) {
-    throw new Error(`${fieldName} is required.`);
-  }
-
-  let parsed: bigint;
-
-  try {
-    parsed = BigInt(trimmed);
-  } catch {
-    throw new Error(`${fieldName} must be an integer.`);
-  }
-
-  if (parsed < 0n) {
-    throw new Error(`${fieldName} must be non-negative.`);
-  }
-
-  return parsed;
-}
-
-function parseBigIntList(value: string, fieldName: string): bigint[] {
-  const parts = value
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  if (parts.length === 0) {
-    throw new Error(`${fieldName} must contain at least one value.`);
-  }
-
-  return parts.map((part, index) => parseNonNegativeBigInt(part, `${fieldName} #${index + 1}`));
-}
-
-function parseVoteList(value: string): number[] {
-  const parts = value
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  if (parts.length === 0) {
-    throw new Error('Votes must contain at least one entry.');
-  }
-
-  return parts.map((part, index) => {
-    if (part !== '0' && part !== '1') {
-      throw new Error(`Vote #${index + 1} must be 0 or 1.`);
-    }
-
-    return Number(part);
-  });
 }
 
 function preview(value: bigint, edgeLength = 18): string {
@@ -543,6 +504,7 @@ const aggregationResult = byId<HTMLDivElement>('aggregation-result');
 const aggregationTable = byId<HTMLTableElement>('aggregation-table');
 const aggregationRows = byId<HTMLTableSectionElement>('aggregation-rows');
 const electionForm = byId<HTMLFormElement>('election-form');
+const sealBallotsButton = byId<HTMLButtonElement>('seal-ballots');
 const votesInput = byId<HTMLTextAreaElement>('votes-input');
 const electionResult = byId<HTMLDivElement>('election-result');
 const factorButton = byId<HTMLButtonElement>('factor-key');
@@ -567,6 +529,7 @@ const keygenWorker = new Worker(new URL('./keygen.worker.ts', import.meta.url), 
 
 let activeKeyPair: PaillierKeyPair | null = null;
 let isGenerating = false;
+let keyEpoch = 0;
 
 // The most recent single-message ciphertext the learner produced in Step 2,
 // plus the message it encrypts. This is what the "send to Step 3" hand-off
@@ -586,6 +549,8 @@ let stepperTrace: { ciphertext: bigint; steps: DecryptionStep[]; revealed: numbe
 
 // Election state for the malleability exhibit.
 let ballotState: {
+  epoch: number;
+  modulus: bigint;
   key: CryptoKey;
   ballots: SealedBallot[];
   honestTally: bigint;
@@ -593,6 +558,15 @@ let ballotState: {
 } | null = null;
 
 let isFactoring = false;
+let factorRequest: { requestId: number; epoch: number; modulus: bigint } | null = null;
+let nextFactorRequestId = 1;
+let isTallying = false;
+let electionRequestId: number | null = null;
+let nextElectionRequestId = 1;
+let isForging = false;
+let forgeRequestId: number | null = null;
+let nextForgeRequestId = 1;
+let attackRevision = 0;
 
 function updateControlState(): void {
   generateButton.disabled = isGenerating;
@@ -614,6 +588,8 @@ function updateControlState(): void {
   addToLedgerButton.disabled = !activeKeyPair || isGenerating || lastEncryption === null;
   factorButton.disabled = !activeKeyPair || isGenerating || isFactoring;
   factorButton.setAttribute('aria-busy', String(isFactoring));
+  sealBallotsButton.disabled = !activeKeyPair || isGenerating || isTallying;
+  sealBallotsButton.setAttribute('aria-busy', String(isTallying));
   // Nothing left to step once the trace for the ciphertext currently in the box
   // has been fully revealed; editing the box starts a new trace.
   const traceExhausted = stepperTrace !== null
@@ -622,7 +598,9 @@ function updateControlState(): void {
   stepDecryptButton.disabled = !activeKeyPair || isGenerating
     || decryptInput.value.trim() === '' || traceExhausted;
   resetStepperButton.disabled = stepperTrace === null;
-  forgeButton.disabled = !activeKeyPair || isGenerating || ballotState === null;
+  forgeButton.disabled = !activeKeyPair || isGenerating || isTallying || isForging
+    || ballotState === null;
+  forgeButton.setAttribute('aria-busy', String(isForging));
 }
 
 function setProgress(stage: string, percent: number): void {
@@ -690,7 +668,15 @@ keyForm.addEventListener('submit', (event) => {
     return;
   }
 
+  // Advancing the epoch immediately revokes every asynchronous operation that
+  // was launched under the old key, even while its worker/WebCrypto promise is
+  // still finishing in the background.
+  keyEpoch += 1;
   activeKeyPair = null;
+  factorWorker.terminate();
+  factorWorker = createFactorWorker();
+  factorRequest = null;
+  isFactoring = false;
   isGenerating = true;
   updateControlState();
   renderKeyPair({
@@ -709,6 +695,7 @@ keyForm.addEventListener('submit', (event) => {
   resetStepper();
   resetBallots();
   resetAggregation();
+  setResultBox(factorResult, 'Previous factoring work retired. Waiting for the new keypair.', 'neutral');
   setProgress('Dispatching key generation worker...', 2);
 
   const request: GenerateRequest = {
@@ -1055,7 +1042,7 @@ aggregationForm.addEventListener('submit', (event) => {
   try {
     const keyPair = requireKeyPair();
     const counts = parseBigIntList(countsInput.value, 'Counts');
-    const weights = parseBigIntList(weightsInput.value, 'Weights');
+    const weights = parseOptionalWeights(weightsInput.value, counts.length);
     const scenario = simulatePrivateAggregation(counts, keyPair.publicKey);
     const decryptedTotal = decrypt(scenario.encryptedTotal, keyPair);
     const weightedCiphertext = weightedSum(
@@ -1068,12 +1055,12 @@ aggregationForm.addEventListener('submit', (event) => {
     // ciphertext exponentiation, printed next to the numbers that produced it.
     aggregationRows.innerHTML = '';
     scenario.hospitals.forEach((hospital, index) => {
-      const weight = weights[index] ?? 1n;
+      const weight = weights[index];
       const contribution = multiplyByScalar(hospital.encryptedCount, weight, keyPair.publicKey);
       const row = document.createElement('tr');
       for (const text of [
         hospital.id,
-        hospital.privateCount.toString(),
+        counts[index].toString(),
         weight.toString(),
         preview(contribution, 10),
       ]) {
@@ -1088,21 +1075,31 @@ aggregationForm.addEventListener('submit', (event) => {
     // Both totals are checked against the arithmetic they claim to perform.
     const plainTotal = counts.reduce((sum, value) => sum + value, 0n);
     const plainWeighted = counts.reduce(
-      (sum, value, index) => sum + value * (weights[index] ?? 1n),
+      (sum, value, index) => sum + value * weights[index],
       0n,
     );
+    const reducedTotal = plainTotal % keyPair.publicKey.N;
+    const reducedWeighted = plainWeighted % keyPair.publicKey.N;
+    const totalMatches = decryptedTotal === reducedTotal;
+    const weightedMatches = decryptedWeighted === reducedWeighted;
+    const totalWrapped = plainTotal >= keyPair.publicKey.N;
+    const weightedWrapped = plainWeighted >= keyPair.publicKey.N;
 
     setResultBox(
       aggregationResult,
       [
-        `Sum ∏ Enc(xᵢ) decrypts to <strong>${decryptedTotal.toString()}</strong> `
-          + `(plaintext Σxᵢ = ${plainTotal.toString()} — ${decryptedTotal === plainTotal % keyPair.publicKey.N ? 'match' : 'mismatch'}).`,
-        `Weighted ∏ Enc(xᵢ)<sup>wᵢ</sup> decrypts to <strong>${decryptedWeighted.toString()}</strong> `
-          + `(plaintext Σwᵢxᵢ = ${plainWeighted.toString()} — ${decryptedWeighted === plainWeighted % keyPair.publicKey.N ? 'match' : 'mismatch'}).`,
+        `Raw plaintext sum Σxᵢ = <strong>${plainTotal.toString()}</strong>; expected modulo N = `
+          + `<strong>${reducedTotal.toString()}</strong>; ciphertext decrypts to `
+          + `<strong>${decryptedTotal.toString()}</strong> — ${totalMatches ? 'match' : 'mismatch'}.`
+          + (totalWrapped ? ' The raw sum reached N, so this result wrapped and is not the unreduced total.' : ''),
+        `Raw weighted sum Σwᵢxᵢ = <strong>${plainWeighted.toString()}</strong>; expected modulo N = `
+          + `<strong>${reducedWeighted.toString()}</strong>; ciphertext decrypts to `
+          + `<strong>${decryptedWeighted.toString()}</strong> — ${weightedMatches ? 'match' : 'mismatch'}.`
+          + (weightedWrapped ? ' The raw weighted sum reached N, so this result wrapped and is not the unreduced total.' : ''),
         `Exponentiating a ciphertext by a public constant is the second homomorphism: it multiplies the hidden `
           + `plaintext without revealing it. Scenario B turns that same move into an attack.`,
       ].join('<br /><br />'),
-      'success',
+      totalMatches && weightedMatches && !totalWrapped && !weightedWrapped ? 'success' : 'error',
     );
   } catch (error) {
     setResultBox(aggregationResult, error instanceof Error ? error.message : 'Aggregation failed.', 'error');
@@ -1127,11 +1124,17 @@ function resetAggregation(): void {
 }
 
 function resetBallots(): void {
+  electionRequestId = null;
+  forgeRequestId = null;
+  isTallying = false;
+  isForging = false;
+  attackRevision += 1;
   ballotState = null;
   ballotAttack.hidden = true;
   ballotList.innerHTML = '';
   attackTarget.innerHTML = '';
   setResultBox(attackResult, 'Nothing forged yet.', 'neutral');
+  updateControlState();
 }
 
 // Render the ballot box's current contents: the ciphertext each voter submitted,
@@ -1166,11 +1169,38 @@ electionForm.addEventListener('submit', (event) => {
   event.preventDefault();
 
   void (async () => {
+    let requestId: number | null = null;
+    let epoch = keyEpoch;
+    let modulus = 0n;
+
     try {
       const keyPair = requireKeyPair();
       const votes = parseVoteList(votesInput.value);
+      epoch = keyEpoch;
+      modulus = keyPair.publicKey.N;
+      requestId = nextElectionRequestId;
+      nextElectionRequestId += 1;
+      electionRequestId = requestId;
+      forgeRequestId = null;
+      isForging = false;
+      isTallying = true;
+      updateControlState();
+
       const key = await generateBallotKey();
       const ballots = await sealBallots(votes, keyPair.publicKey, key);
+
+      if (
+        electionRequestId !== requestId
+        || !isCurrentKeySession(
+          epoch,
+          modulus,
+          keyEpoch,
+          activeKeyPair?.publicKey.N ?? null,
+        )
+      ) {
+        return;
+      }
+
       const encryptedTally = ballots.reduce(
         (accumulator, ballot) => addCiphertexts(accumulator, ballot.ciphertext, keyPair.publicKey),
         1n,
@@ -1178,7 +1208,14 @@ electionForm.addEventListener('submit', (event) => {
       const decryptedTally = decrypt(encryptedTally, keyPair);
       const honestSum = BigInt(votes.reduce((sum, vote) => sum + vote, 0));
 
-      ballotState = { key, ballots, honestTally: decryptedTally, honestSum };
+      ballotState = {
+        epoch,
+        modulus,
+        key,
+        ballots,
+        honestTally: decryptedTally,
+        honestSum,
+      };
 
       attackTarget.innerHTML = '';
       ballots.forEach((ballot, index) => {
@@ -1205,7 +1242,24 @@ electionForm.addEventListener('submit', (event) => {
       );
       updateControlState();
     } catch (error) {
-      setResultBox(electionResult, error instanceof Error ? error.message : 'Election tally failed.', 'error');
+      if (
+        requestId === null
+        || (electionRequestId === requestId
+          && isCurrentKeySession(
+            epoch,
+            modulus,
+            keyEpoch,
+            activeKeyPair?.publicKey.N ?? null,
+          ))
+      ) {
+        setResultBox(electionResult, error instanceof Error ? error.message : 'Election tally failed.', 'error');
+      }
+    } finally {
+      if (requestId !== null && electionRequestId === requestId) {
+        electionRequestId = null;
+        isTallying = false;
+        updateControlState();
+      }
     }
   })();
 });
@@ -1218,33 +1272,66 @@ forgeButton.addEventListener('click', () => {
       return;
     }
 
+    const state = ballotState;
+    const revision = attackRevision;
+    let requestId: number | null = null;
+
     try {
       const keyPair = requireKeyPair();
       const index = Number(attackTarget.value);
-      const target = ballotState.ballots[index];
+      const target = state.ballots[index];
 
       if (!target) {
         throw new Error('Pick a ballot to rewrite.');
       }
+
+      requestId = nextForgeRequestId;
+      nextForgeRequestId += 1;
+      forgeRequestId = requestId;
+      isForging = true;
+      updateControlState();
 
       const boost = parseNonNegativeBigInt(attackBoost.value, 'Votes to inject');
       const forged = forgeBallot(target.ciphertext, boost, keyPair.publicKey);
 
       // Replace the ciphertext in transit. The stored tag is left alone — the
       // attacker cannot recompute it without the ballot box's MAC key.
-      ballotState.ballots[index] = { ...target, ciphertext: forged.forgedCiphertext, tampered: true };
-      renderBallots(ballotState.ballots);
+      const forgedBallots = state.ballots.map((ballot, ballotIndex) =>
+        ballotIndex === index
+          ? { ...target, ciphertext: forged.forgedCiphertext, tampered: true }
+          : ballot,
+      );
 
       const authenticate = attackAuthenticate.checked;
       const box = await runBallotBox(
-        ballotState.ballots,
+        forgedBallots,
         keyPair.publicKey,
-        ballotState.key,
+        state.key,
         authenticate,
       );
       const newTally = decrypt(box.encryptedTally, keyPair);
-      const recomputedTag = await tagCiphertext(forged.forgedCiphertext, ballotState.key);
-      const delta = newTally - ballotState.honestTally;
+      const recomputedTag = await tagBallot(
+        target.voterId,
+        forged.forgedCiphertext,
+        state.key,
+      );
+
+      if (
+        forgeRequestId !== requestId
+        || attackRevision !== revision
+        || ballotState !== state
+        || !isCurrentKeySession(
+          state.epoch,
+          state.modulus,
+          keyEpoch,
+          activeKeyPair?.publicKey.N ?? null,
+        )
+      ) {
+        return;
+      }
+
+      renderBallots(forgedBallots);
+      const delta = newTally - state.honestTally;
 
       const attackLine = `Attacker computed Enc(${boost.toString()}) = <code>${preview(forged.injectedCiphertext, 10)}</code> `
         + `with the public key and multiplied it into ${target.voterId}'s ballot mod N². They still do not know how `
@@ -1257,23 +1344,23 @@ forgeButton.addEventListener('click', () => {
         // targets selectable in the shipped ballot list. A rejected 0 vote costs
         // the tally nothing, so the honest total is unchanged and the sentence
         // contradicted the number printed one clause earlier.
-        const lost = ballotState.honestTally - newTally;
+        const lost = state.honestTally - newTally;
         const costLine = lost > 0n
-          ? `It is ${lost.toString()} below the honest ${ballotState.honestTally.toString()}: the `
+          ? `It is ${lost.toString()} below the honest ${state.honestTally.toString()}: the `
             + `${box.rejected.length} rejected ballot(s) carried ${lost.toString()} vote(s) of their own, and those `
             + `went out with the forgery. Authentication stops forgery, it does not repair a lost ballot.`
           : lost === 0n
-            ? `It is exactly the honest ${ballotState.honestTally.toString()} — the rejected ballot(s) carried 0 votes, `
+            ? `It is exactly the honest ${state.honestTally.toString()} — the rejected ballot(s) carried 0 votes, `
               + `so dropping them cost the tally nothing. Pick a voter who voted 1 and run it again to see the other `
               + `case: authentication stops forgery, it does not repair a lost ballot.`
-            : `It is ${(-lost).toString()} ABOVE the honest ${ballotState.honestTally.toString()}, which should not `
+            : `It is ${(-lost).toString()} ABOVE the honest ${state.honestTally.toString()}, which should not `
               + `happen when every ballot is a 0 or a 1 — treat this as a bug in the exhibit.`;
 
         setResultBox(
           attackResult,
           [
             attackLine,
-            `<strong>Encrypt-then-MAC caught it.</strong> The ballot box recomputed the tag over the ciphertext it `
+            `<strong>Encrypt-then-MAC caught it.</strong> The ballot box verified the domain-separated voter ID and ciphertext it `
               + `received: <code>${recomputedTag.slice(0, 24)}…</code> ≠ sealed <code>${target.tag.slice(0, 24)}…</code>. `
               + `${box.rejected.length} ballot(s) rejected, ${box.accepted.length} counted.`,
             `Tally over the accepted ballots decrypts to <strong>${newTally.toString()}</strong> — the rigged +${boost.toString()} `
@@ -1287,7 +1374,7 @@ forgeButton.addEventListener('click', () => {
           [
             attackLine,
             `<strong>The tally is rigged.</strong> It now decrypts to <strong>${newTally.toString()}</strong>, `
-              + `${delta >= 0n ? '+' : ''}${delta.toString()} against the honest ${ballotState.honestTally.toString()}. `
+              + `${delta >= 0n ? '+' : ''}${delta.toString()} against the honest ${state.honestTally.toString()}. `
               + `The ballot box accepted all ${box.accepted.length} ballots because it checked nothing.`,
             `Additive homomorphism <em>is</em> malleability. Turn on the tag check above and run the same attack again.`,
           ].join('<br /><br />'),
@@ -1295,7 +1382,20 @@ forgeButton.addEventListener('click', () => {
         );
       }
     } catch (error) {
-      setResultBox(attackResult, error instanceof Error ? error.message : 'Forgery failed.', 'error');
+      if (
+        requestId === null
+        || (forgeRequestId === requestId
+          && attackRevision === revision
+          && ballotState === state)
+      ) {
+        setResultBox(attackResult, error instanceof Error ? error.message : 'Forgery failed.', 'error');
+      }
+    } finally {
+      if (requestId !== null && forgeRequestId === requestId) {
+        forgeRequestId = null;
+        isForging = false;
+        updateControlState();
+      }
     }
   })();
 });
@@ -1379,10 +1479,22 @@ resetStepperButton.addEventListener('click', resetStepper);
 
 factorBudgetLabel.textContent = DEFAULT_BUDGET.toLocaleString('en-US');
 
-const factorWorker = new Worker(new URL('./factor.worker.ts', import.meta.url), { type: 'module' });
-
-factorWorker.addEventListener('message', (event: MessageEvent<FactorWorkerMessage>) => {
+function handleFactorWorkerMessage(event: MessageEvent<FactorWorkerMessage>): void {
   const message = event.data;
+  const request = factorRequest;
+
+  if (
+    !request
+    || message.requestId !== request.requestId
+    || !isCurrentKeySession(
+      request.epoch,
+      request.modulus,
+      keyEpoch,
+      activeKeyPair?.publicKey.N ?? null,
+    )
+  ) {
+    return;
+  }
 
   if (message.type === 'progress') {
     setResultBox(
@@ -1394,6 +1506,7 @@ factorWorker.addEventListener('message', (event: MessageEvent<FactorWorkerMessag
   }
 
   isFactoring = false;
+  factorRequest = null;
   updateControlState();
 
   if (message.type === 'error') {
@@ -1412,7 +1525,7 @@ factorWorker.addEventListener('message', (event: MessageEvent<FactorWorkerMessag
     // width or one bit under it, so floor(bits/2) named a prime size the key
     // did not have in 87 of 200 keygens across the five shipped sizes.
     const primeBits = keyPair.privateKey.p.toString(2).length;
-    const expected = expectedIterations(primeBits);
+    const medianEstimate = expectedIterations(primeBits);
     const rate = ms > 0 ? Math.round(iterations / (ms / 1000)) : iterations;
 
     if (!factor || gaveUp) {
@@ -1421,7 +1534,7 @@ factorWorker.addEventListener('message', (event: MessageEvent<FactorWorkerMessag
         [
           `<strong>Gave up.</strong> ${iterations.toLocaleString('en-US')} modular squarings in ${ms} ms `
             + `(~${rate.toLocaleString('en-US')}/s) did not split this ${bits}-bit N.`,
-          `Pollard rho needs about 1.18·√p ≈ <strong>${Math.round(expected).toLocaleString('en-US')}</strong> steps for a `
+          `The birthday-model 50% collision estimate is 1.18·√p ≈ <strong>${Math.round(medianEstimate).toLocaleString('en-US')}</strong> steps for a `
             + `${primeBits}-bit prime — and this N's primes are ${primeBits} bits each — while the budget here is `
             + `${DEFAULT_BUDGET.toLocaleString('en-US')}. `
             + `Drop to 64-bit and the same code finishes instantly. Every extra 4 bits of N doubles that expected work — `
@@ -1460,16 +1573,37 @@ factorWorker.addEventListener('message', (event: MessageEvent<FactorWorkerMessag
   } catch (error) {
     setResultBox(factorResult, error instanceof Error ? error.message : 'Recovery failed.', 'error');
   }
-});
+}
+
+function createFactorWorker(): Worker {
+  const worker = new Worker(new URL('./factor.worker.ts', import.meta.url), { type: 'module' });
+  worker.addEventListener('message', handleFactorWorkerMessage);
+  return worker;
+}
+
+let factorWorker = createFactorWorker();
 
 factorButton.addEventListener('click', () => {
   try {
     const keyPair = requireKeyPair();
+    const requestId = nextFactorRequestId;
+    nextFactorRequestId += 1;
+    factorRequest = {
+      requestId,
+      epoch: keyEpoch,
+      modulus: keyPair.publicKey.N,
+    };
     isFactoring = true;
     updateControlState();
     setResultBox(factorResult, 'Running Pollard rho against N…', 'neutral');
-    factorWorker.postMessage({ type: 'factor', N: keyPair.publicKey.N, budget: DEFAULT_BUDGET });
+    factorWorker.postMessage({
+      type: 'factor',
+      requestId,
+      N: keyPair.publicKey.N,
+      budget: DEFAULT_BUDGET,
+    });
   } catch (error) {
+    factorRequest = null;
     isFactoring = false;
     updateControlState();
     setResultBox(factorResult, error instanceof Error ? error.message : 'Factoring failed.', 'error');
@@ -1502,13 +1636,33 @@ decryptInput.addEventListener('input', () => {
  * ones selected.
  */
 function invalidateAttackVerdict(): void {
+  attackRevision += 1;
+  forgeRequestId = null;
+  isForging = false;
   if (ballotState && attackResult.textContent !== 'Nothing forged yet.') {
     setResultBox(attackResult, 'Nothing forged yet.', 'neutral');
   }
+  if (ballotState) {
+    // Each press is a fresh interception of the sealed ballot, not another
+    // multiplication layered onto the previous demonstration.
+    renderBallots(ballotState.ballots);
+  }
+  updateControlState();
 }
 
 attackAuthenticate.addEventListener('change', invalidateAttackVerdict);
 attackTarget.addEventListener('change', invalidateAttackVerdict);
 attackBoost.addEventListener('input', invalidateAttackVerdict);
+
+votesInput.addEventListener('input', () => {
+  resetBallots();
+  if (activeKeyPair) {
+    setResultBox(
+      electionResult,
+      'Votes changed. Seal and tally the current list before attacking it.',
+      'neutral',
+    );
+  }
+});
 
 updateControlState();

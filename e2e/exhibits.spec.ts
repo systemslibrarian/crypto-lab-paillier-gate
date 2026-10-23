@@ -379,6 +379,51 @@ test.describe('ballot malleability', () => {
     await expect(page.locator('#ballot-attack')).toBeHidden();
     await expect(page.locator('#forge-ballot')).toBeDisabled();
   });
+
+  test('editing votes retires the sealed ballot state', async ({ page }) => {
+    await open(page);
+    await generateKey(page, '64');
+    await page.locator('#election-form button[type="submit"]').click();
+    await expect(page.locator('#ballot-attack')).toBeVisible();
+
+    await page.locator('#votes-input').fill('1, 0, 1');
+    await expect(page.locator('#ballot-attack')).toBeHidden();
+    await expect(page.locator('#ballot-list li')).toHaveCount(0);
+    await expect(page.locator('#forge-ballot')).toBeDisabled();
+    await expect(page.locator('#election-result')).toContainText(
+      'Votes changed. Seal and tally the current list before attacking it.',
+    );
+  });
+
+  test('a new key revokes an election operation that is still sealing ballots', async ({ page }) => {
+    await open(page);
+    await generateKey(page, '64');
+    await page.locator('#votes-input').fill(Array.from({ length: 100 }, () => '1').join(','));
+
+    await page.locator('#election-form button[type="submit"]').click();
+    await page.locator('#generate-key').click();
+    await expect(page.locator('#generate-key')).toBeEnabled({ timeout: 60_000 });
+
+    await expect(page.locator('#ballot-attack')).toBeHidden();
+    await expect(page.locator('#ballot-list li')).toHaveCount(0);
+    await expect(page.locator('#election-result')).toContainText('with the new keypair');
+  });
+});
+
+test('a new key immediately revokes an in-flight factoring result', async ({ page }) => {
+  await open(page);
+  await generateKey(page, '192');
+  await page.locator('#factor-key').click();
+  await expect(page.locator('#factor-key')).toHaveAttribute('aria-busy', 'true');
+
+  await page.selectOption('#bit-length', '64');
+  await page.locator('#generate-key').click();
+  await expect(page.locator('#generate-key')).toBeEnabled({ timeout: 60_000 });
+
+  await expect(page.locator('#factor-result')).toContainText(
+    'Key is fresh. Try to factor N and rebuild λ from it.',
+  );
+  await expect(page.locator('#factor-key')).toHaveAttribute('aria-busy', 'false');
 });
 
 test('weighted aggregation reports both homomorphisms against the plaintext arithmetic', async ({ page }) => {
@@ -389,12 +434,60 @@ test('weighted aggregation reports both homomorphisms against the plaintext arit
 
   const result = page.locator('#aggregation-result');
   // 10+25+17+8+30 = 90; 1*10+2*25+3*17+4*8+5*30 = 293.
-  await expect(result).toContainText('decrypts to 90');
-  await expect(result).toContainText('Σxᵢ = 90 — match');
-  await expect(result).toContainText('decrypts to 293');
-  await expect(result).toContainText('Σwᵢxᵢ = 293 — match');
+  await expect(result).toContainText('Raw plaintext sum Σxᵢ = 90');
+  await expect(result).toContainText('expected modulo N = 90');
+  await expect(result).toContainText('ciphertext decrypts to 90 — match');
+  await expect(result).toContainText('Raw weighted sum Σwᵢxᵢ = 293');
+  await expect(result).toContainText('expected modulo N = 293');
+  await expect(result).toContainText('ciphertext decrypts to 293 — match');
   await expect(result).not.toContainText('mismatch');
   await expect(page.locator('#aggregation-rows tr')).toHaveCount(5);
+});
+
+test('optional weights default to one and explicit weights must match the row count', async ({
+  page,
+}) => {
+  await open(page);
+  await generateKey(page, '64');
+
+  await page.locator('#weights-input').fill('');
+  await page.locator('#aggregation-form button[type="submit"]').click();
+  const result = page.locator('#aggregation-result');
+  await expect(result).toContainText('Raw weighted sum Σwᵢxᵢ = 90');
+  await expect(page.locator('#aggregation-rows tr td:nth-child(3)')).toHaveText([
+    '1', '1', '1', '1', '1',
+  ]);
+
+  await page.locator('#weights-input').fill('1, 2');
+  await page.locator('#aggregation-form button[type="submit"]').click();
+  await expect(result).toContainText('Weights must contain exactly 5 values, or be left blank.');
+});
+
+test('aggregation distinguishes a modular match from the unreduced total', async ({ page }) => {
+  await open(page);
+  await generateKey(page, '64');
+
+  const modulus = BigInt((await page.locator('#metric-n').textContent()) ?? '0');
+  await page.locator('#counts-input').fill(`${modulus - 1n}, 2`);
+  await page.locator('#weights-input').fill('');
+  await page.locator('#aggregation-form button[type="submit"]').click();
+
+  const result = page.locator('#aggregation-result');
+  await expect(result).toContainText(`Raw plaintext sum Σxᵢ = ${modulus + 1n}`);
+  await expect(result).toContainText('expected modulo N = 1');
+  await expect(result).toContainText('ciphertext decrypts to 1 — match');
+  await expect(result).toContainText('wrapped and is not the unreduced total');
+  await expect(result).toHaveAttribute('data-tone', 'error');
+});
+
+test('the randomness exhibit does not claim that samples prove semantic security', async ({
+  page,
+}) => {
+  await open(page);
+  const copy = page.locator('.semantic-demo-copy');
+  await expect(copy).toContainText('illustrates the randomness semantic security requires');
+  await expect(copy).toContainText('not a proof');
+  await expect(copy).toContainText('decisional composite residuosity assumption');
 });
 
 /**
@@ -452,8 +545,9 @@ test('a fresh keypair retires the aggregation breakdown with everything else', a
  * short in the latter case, and the estimate beside it was computed from the
  * modulus — so the sentence's two halves disagreed with each other.
  *
- * Asserted as the invariant: the step count the panel prints must be
- * 1.18·sqrt(2^K) for the very K it prints, whichever way the modulus fell.
+ * Asserted as the invariant: the 50% birthday-model collision point the panel
+ * prints must be 1.18·sqrt(2^K) for the very K it prints, whichever way the
+ * modulus fell.
  */
 test('the give-up estimate agrees with the prime size it names', async ({ page }) => {
   test.setTimeout(240_000);

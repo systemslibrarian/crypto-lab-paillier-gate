@@ -341,25 +341,27 @@ export async function driveAllStates(page: Page, theme: string): Promise<void> {
 
   // The homomorphic sum, and the modulus-overflow preset that breaks it.
   await page.locator('#sum-form button[type="submit"]').first().click();
-  await expect(page.locator('#sum-result')).not.toBeEmpty();
+  await expect(page.locator('#sum-result')).toContainText('product ciphertext decrypts to');
   await scan(page, `${theme} / homomorphic sum`);
 
   await page.locator('#overflow-preset').click();
-  await expect(page.locator('#sum-result')).not.toBeEmpty();
+  await page.locator('#sum-form button[type="submit"]').first().click();
+  await expect(page.locator('#sum-result')).toContainText('Modulus overflow.');
   await scan(page, `${theme} / modulus overflow`);
 
   // Ledger slots.
   await page.locator('#add-to-ledger').click();
-  await page.locator('#ledger-decrypt').waitFor();
+  await page.locator('#sum-form button[type="submit"]').first().click();
+  await expect(page.locator('#ledger-a-plain')).toContainText('yours');
   await scan(page, `${theme} / ledger`);
 
   // The election: seal and tally, then the weighted aggregation.
   await page.locator('#election-form button[type="submit"]').first().click();
-  await expect(page.locator('#election-result')).not.toBeEmpty();
+  await expect(page.locator('#election-result')).toContainText('Honest tally decrypts to');
   await scan(page, `${theme} / election tallied`);
 
   await page.locator('#aggregation-form button[type="submit"]').first().click();
-  await expect(page.locator('#aggregation-result')).not.toBeEmpty();
+  await expect(page.locator('#aggregation-result')).toContainText('Raw plaintext sum');
   await scan(page, `${theme} / weighted aggregation`);
 
   // The ballot attack, both branches: malleability succeeds unauthenticated,
@@ -367,16 +369,18 @@ export async function driveAllStates(page: Page, theme: string): Promise<void> {
   await expect(page.locator('#ballot-attack')).toBeVisible();
   await page.locator('#attack-boost').fill('100');
   await page.locator('#forge-ballot').click();
-  await expect(page.locator('#attack-result')).not.toBeEmpty();
+  await expect(page.locator('#attack-result')).toContainText('The tally is rigged.');
   await scan(page, `${theme} / ballot forged`);
 
   await page.locator('#attack-authenticate').check();
   await page.locator('#forge-ballot').click();
-  await expect(page.locator('#attack-result')).not.toBeEmpty();
+  await expect(page.locator('#attack-result')).toContainText('Encrypt-then-MAC caught it.');
   await scan(page, `${theme} / ballot forge rejected`);
 
   // The factoring exhibit: a bounded attempt on the modulus.
   await page.locator('#factor-key').click();
-  await expect(page.locator('#factor-result')).not.toBeEmpty({ timeout: 180_000 });
+  await expect(page.locator('#factor-result')).toContainText(/Factored\.|Gave up\./, {
+    timeout: 180_000,
+  });
   await scan(page, `${theme} / factoring attempt`);
 }

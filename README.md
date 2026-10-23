@@ -2,14 +2,14 @@
 
 ## What It Is
 
-crypto-lab-paillier-gate is a browser demo of the Paillier additive homomorphic cryptosystem implemented in TypeScript with BigInt arithmetic. Paillier is an asymmetric public-key encryption scheme with additive homomorphism, so it can combine encrypted values and reveal only the final sum after decryption. That makes it useful for privacy-preserving totals such as vote counts and institution-level aggregates. This project demonstrates the mechanics of Paillier key generation, encryption, decryption, rerandomization, and encrypted addition, but it is not an audited production cryptography library.
+crypto-lab-paillier-gate is a browser demo of the Paillier probabilistic, additively homomorphic cryptosystem implemented in TypeScript with BigInt arithmetic. In a protocol that separates data owners, the ciphertext aggregator, and authorized key holders, Paillier can combine encrypted values before an authorized party decrypts the final modular total. This single-page lesson intentionally sees the learner's inputs and owns the private key so it can verify every result; it models those separated roles rather than providing that confidentiality boundary itself. It demonstrates key generation, encryption, decryption, rerandomization, encrypted addition, and their limits, but it is not an audited production cryptography library.
 
 ## When to Use It
 
-- Use it for privacy-preserving summation workflows where multiple parties need a combined total without exposing each individual input, because Paillier supports addition directly on ciphertexts.
+- Use it to study privacy-preserving summation designs with separated roles, because Paillier supports addition directly on ciphertexts.
 - Use it for binary vote tally demonstrations, because 0/1 ballots can stay encrypted during collection and only the final tally needs to be decrypted.
 - Use it for weighted scoring or aggregation experiments, because the demo supports scalar multiplication and weighted sums over encrypted values.
-- Do NOT use this demo as a production browser encryption stack — it is a teaching demo that intentionally uses educational key sizes and is not hardened or audited for deployment.
+- Do not use it as a production browser encryption stack, because it is a demo app and does not provide hardened operational controls.
 
 ## Live Demo
 
@@ -21,15 +21,15 @@ To make the homomorphic "magic" observable rather than asserted, the demo also i
 
 - A **homomorphic-addition ledger** in Step 3 that shows the full `Enc(A)`, `Enc(B)`, and product ciphertexts with a literal `× (mod N²)` operator and a `decrypt →` arrow to `A + B`, plus an inline callout proving the product is *not* the integer sum of the two ciphertexts — the page decrypts that integer sum too and prints the wrong value it yields, so ciphertext multiplication being the operation that maps to plaintext addition is demonstrated, not claimed.
 - A **ciphertext hand-off**: encrypt a value in Step 2 and send that exact ciphertext into Step 3 so you combine data you personally encrypted, instead of the demo re-encrypting behind the scenes.
-- A **"same message, different ciphertext"** stack (an *Encrypt again* button) that visualizes semantic security: identical plaintexts yield visibly different ciphertexts. Each row is decrypted with the private key as it is added and captioned with that decryption, so "they all decrypt to the same value" is shown rather than asserted.
+- A **"same message, different ciphertext"** stack (an *Encrypt again* button) that illustrates Paillier's probabilistic randomness: identical plaintexts yield visibly different ciphertexts. Each row is decrypted with the private key as it is added and captioned with that decryption. This observation does not prove semantic security; the original Paillier result establishes that property under the decisional composite residuosity assumption.
 - A **re-randomize** control that folds a fresh `rᴺ` factor into an existing ciphertext using only the public key — the ciphertext changes completely, the plaintext does not, and the new row's caption is the real decryption of the refreshed ciphertext.
 - An **interactive modulus-overflow preset** that forces an encrypted sum past `N` so you can watch decryption silently wrap to the wrong value, with a callout explaining the plaintext-space bound.
 - A **factoring attack on the key you just generated**: a real Pollard rho (Brent's variant) runs in a worker against `N` under a fixed 12,000,000-step budget. On a 64-bit modulus it splits `N` in a few hundred thousand modular squarings, rebuilds `λ = lcm(p−1, q−1)` from the recovered primes, checks that against the private `λ` the keygen worker produced, and decrypts your Step 2 ciphertext with the key it just derived. At larger sizes the same routine exhausts its budget and says so, printing the steps and milliseconds it actually burned. "Bigger is harder to factor" becomes a measurement rather than a caption on the bit-length selector.
 - A **stepped decryption**: press once per operation to walk `c → u = c^λ mod N² → L(u) = (u−1)/N → m = L(u)·μ mod N` on the live ciphertext, with the final step cross-checked against what `decrypt()` returns for the same input.
-- A **malleability attack on a sealed ballot** (Scenario B). The attacker encrypts a boost under the *public* key, multiplies it into another voter's ciphertext, and the tally decrypts that much higher — plus a toggle that turns on Encrypt-then-MAC, so the ballot box re-derives each HMAC-SHA256 tag over the ciphertext it received and drops the forged one. Both outcomes are computed in the browser, and the attack function only ever receives the public key.
+- A **malleability attack on a sealed ballot** (Scenario B). The attacker encrypts a boost under the *public* key, multiplies it into another voter's ciphertext, and the tally decrypts that much higher. A toggle turns on a domain-separated HMAC-SHA256 over the voter identifier and ciphertext; the ballot box verifies it with Web Crypto and rejects both the forged record and duplicate voter identifiers. This blocks the demonstrated outsider rewrite, but it is not a complete election protocol.
 - **Plain-language glosses** on the `N`, `g`, and `λ` metric cards and a collapsible *What's happening under the hood* panel carrying the key-generation and encryption math onto the page.
 
-The two scenarios make deliberately different arguments. Scenario A is confidentiality: it runs both the plain sum `∏ Enc(xᵢ)` and the weighted sum `∏ Enc(xᵢ)^wᵢ`, printing each row's `Enc(x)^w` contribution and checking both totals against the plaintext arithmetic they claim to reproduce. Scenario B is integrity: the same algebra, turned against the voter.
+The two scenarios make deliberately different arguments. Scenario A models the arithmetic used by a confidential aggregation protocol: it runs both the plain sum `∏ Enc(xᵢ)` and the weighted sum `∏ Enc(xᵢ)^wᵢ`, printing each row's `Enc(x)^w` contribution and checking the decrypted modular totals against the learner-visible inputs. The page itself is not confidential because it owns both those inputs and the private key. Scenario B is integrity: the same algebra, turned against the voter.
 
 ## What Can Go Wrong
 
@@ -38,11 +38,12 @@ The two scenarios make deliberately different arguments. Scenario A is confident
 - Additive homomorphism is also malleability: anyone holding a ciphertext can add to it or rescale it, so Paillier alone provides no integrity and needs separate authentication.
 - Plaintexts must stay below the modulus `N`; an encrypted sum that overflows `N` wraps around modulo `N` and decrypts to the wrong value.
 - Weak prime generation for `p` and `q`, or too small a modulus, lets an attacker factor `N` and recover the private key.
+- A MAC over this demo's voter identifier and ciphertext does not establish voter eligibility, prove that a plaintext is 0 or 1, prevent replay across election contexts, distribute decryption trust, or provide availability and public auditability.
 
 ## Real-World Usage
 
-- Privacy-preserving e-voting systems use Paillier to tally encrypted ballots so individual votes are never decrypted, only the final count.
-- Threshold ECDSA wallet protocols such as GG18/GG20 use Paillier encryption during distributed key generation and signing.
+- Some privacy-preserving e-voting constructions use threshold Paillier with eligibility, validity-proof, replay, audit and availability mechanisms so authorized key holders open only an aggregate rather than individual ballots.
+- Threshold ECDSA protocols such as GG18 use Paillier-based multiplication-to-addition subprotocols during distributed signing; the lab demonstrates the underlying additive operation, not a threshold-ECDSA implementation.
 - Federated learning and private analytics use additively homomorphic encryption to aggregate model updates or statistics without exposing individual contributions.
 - Privacy-preserving advertising and data-aggregation pipelines use Paillier-style additive HE to compute encrypted sums across mutually distrusting parties.
 
@@ -64,7 +65,7 @@ npm run dev
 
 ## How It Works
 
-Paillier is built on the decisional composite residuosity assumption. Key generation picks two primes `p` and `q`, forms the modulus `N = p · q`, and uses the generator `g = N + 1`. A plaintext `m` is encrypted as `c = gᵐ · rᴺ mod N²` with fresh randomness `r`, so the same message yields a different ciphertext every time. Decryption recovers `m` with the private values `λ = lcm(p−1, q−1)` and `μ = λ⁻¹ mod N` via `m = L(c^λ mod N²) · μ mod N`, where `L(x) = (x − 1) / N`.
+Paillier is built on the decisional composite residuosity assumption. The [original EUROCRYPT '99 paper](https://www.cs.tau.ac.il/~fiat/crypt07/papers/Pai99pai.pdf) proves Scheme 1 semantically secure if and only if that assumption holds; observing randomized samples in this demo illustrates the construction but is not that proof. Key generation picks two primes `p` and `q`, forms the modulus `N = p · q`, and uses the generator `g = N + 1`. A plaintext `m` is encrypted as `c = gᵐ · rᴺ mod N²` with fresh randomness `r`, so the same message yields a different ciphertext every time. Decryption recovers `m` with the private values `λ = lcm(p−1, q−1)` and `μ = λ⁻¹ mod N` via `m = L(c^λ mod N²) · μ mod N`, where `L(x) = (x − 1) / N`.
 
 The scheme is **additively homomorphic**: multiplying two ciphertexts modulo `N²` decrypts to the sum of their plaintexts, and raising a ciphertext to a scalar power decrypts to the scaled plaintext. Those two facts are what make the encrypted aggregation and election-tally scenarios possible.
 
