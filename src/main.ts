@@ -455,6 +455,22 @@ function setResultBox(element: HTMLElement, html: string, tone: 'neutral' | 'suc
   element.innerHTML = html;
 }
 
+/**
+ * The same box, for text that is NOT markup.
+ *
+ * Every failure here reports an exception's message, and those messages quote
+ * what the visitor typed: `BigInt('<img src=x onerror=…>')` throws
+ * "Cannot convert <img src=x onerror=…> to a BigInt". Through `setResultBox`
+ * that reached `innerHTML` as markup — CodeQL `js/xss-through-exception`, with
+ * a complete flow from `plaintextInput.value` through
+ * `parseNonNegativeBigInt`'s throw to the sink. Error text goes through
+ * `textContent`, which has no markup door to escape at.
+ */
+function setResultText(element: HTMLElement, text: string, tone: 'neutral' | 'success' | 'error' = 'neutral'): void {
+  element.dataset.tone = tone;
+  element.textContent = text;
+}
+
 const keyForm = byId<HTMLFormElement>('key-form');
 const bitLengthSelect = byId<HTMLSelectElement>('bit-length');
 const generateButton = byId<HTMLButtonElement>('generate-key');
@@ -658,7 +674,7 @@ keygenWorker.addEventListener('message', (event: MessageEvent<WorkerMessage>) =>
   }
 
   setProgress(message.message, 0);
-  setResultBox(decryptResult, message.message, 'error');
+  setResultText(decryptResult, message.message, 'error');
 });
 
 keyForm.addEventListener('submit', (event) => {
@@ -790,7 +806,7 @@ encryptForm.addEventListener('submit', (event) => {
     const message = parseNonNegativeBigInt(plaintextInput.value, 'Plaintext');
     doEncrypt(message, false);
   } catch (error) {
-    setResultBox(decryptResult, error instanceof Error ? error.message : 'Encryption failed.', 'error');
+    setResultText(decryptResult, error instanceof Error ? error.message : 'Encryption failed.', 'error');
   }
 });
 
@@ -802,7 +818,7 @@ encryptAgainButton.addEventListener('click', () => {
   try {
     doEncrypt(semanticMessage, true);
   } catch (error) {
-    setResultBox(decryptResult, error instanceof Error ? error.message : 'Encryption failed.', 'error');
+    setResultText(decryptResult, error instanceof Error ? error.message : 'Encryption failed.', 'error');
   }
 });
 
@@ -840,7 +856,7 @@ rerandomizeButton.addEventListener('click', () => {
     );
     updateControlState();
   } catch (error) {
-    setResultBox(decryptResult, error instanceof Error ? error.message : 'Re-randomization failed.', 'error');
+    setResultText(decryptResult, error instanceof Error ? error.message : 'Re-randomization failed.', 'error');
   }
 });
 
@@ -916,7 +932,7 @@ decryptForm.addEventListener('submit', (event) => {
     );
   } catch (error) {
     decryptedFrom = null;
-    setResultBox(decryptResult, error instanceof Error ? error.message : 'Decryption failed.', 'error');
+    setResultText(decryptResult, error instanceof Error ? error.message : 'Decryption failed.', 'error');
   }
 });
 
@@ -1014,7 +1030,7 @@ sumForm.addEventListener('submit', (event) => {
       );
     }
   } catch (error) {
-    setResultBox(sumResult, error instanceof Error ? error.message : 'Encrypted sum failed.', 'error');
+    setResultText(sumResult, error instanceof Error ? error.message : 'Encrypted sum failed.', 'error');
   }
 });
 
@@ -1032,7 +1048,7 @@ overflowPresetButton.addEventListener('click', () => {
     sumSourceNote.innerHTML = 'Overflow preset loaded: A + B exceeds N. '
       + 'Press <em>Encrypt A, B and multiply</em> to watch the decryption wrap around.';
   } catch (error) {
-    setResultBox(sumResult, error instanceof Error ? error.message : 'Preset failed.', 'error');
+    setResultText(sumResult, error instanceof Error ? error.message : 'Preset failed.', 'error');
   }
 });
 
@@ -1102,7 +1118,7 @@ aggregationForm.addEventListener('submit', (event) => {
       totalMatches && weightedMatches && !totalWrapped && !weightedWrapped ? 'success' : 'error',
     );
   } catch (error) {
-    setResultBox(aggregationResult, error instanceof Error ? error.message : 'Aggregation failed.', 'error');
+    setResultText(aggregationResult, error instanceof Error ? error.message : 'Aggregation failed.', 'error');
   }
 });
 
@@ -1252,7 +1268,7 @@ electionForm.addEventListener('submit', (event) => {
             activeKeyPair?.publicKey.N ?? null,
           ))
       ) {
-        setResultBox(electionResult, error instanceof Error ? error.message : 'Election tally failed.', 'error');
+        setResultText(electionResult, error instanceof Error ? error.message : 'Election tally failed.', 'error');
       }
     } finally {
       if (requestId !== null && electionRequestId === requestId) {
@@ -1388,7 +1404,7 @@ forgeButton.addEventListener('click', () => {
           && attackRevision === revision
           && ballotState === state)
       ) {
-        setResultBox(attackResult, error instanceof Error ? error.message : 'Forgery failed.', 'error');
+        setResultText(attackResult, error instanceof Error ? error.message : 'Forgery failed.', 'error');
       }
     } finally {
       if (requestId !== null && forgeRequestId === requestId) {
@@ -1510,7 +1526,7 @@ function handleFactorWorkerMessage(event: MessageEvent<FactorWorkerMessage>): vo
   updateControlState();
 
   if (message.type === 'error') {
-    setResultBox(factorResult, message.message, 'error');
+    setResultText(factorResult, message.message, 'error');
     return;
   }
 
@@ -1571,7 +1587,7 @@ function handleFactorWorkerMessage(event: MessageEvent<FactorWorkerMessage>): vo
       'error',
     );
   } catch (error) {
-    setResultBox(factorResult, error instanceof Error ? error.message : 'Recovery failed.', 'error');
+    setResultText(factorResult, error instanceof Error ? error.message : 'Recovery failed.', 'error');
   }
 }
 
@@ -1606,7 +1622,7 @@ factorButton.addEventListener('click', () => {
     factorRequest = null;
     isFactoring = false;
     updateControlState();
-    setResultBox(factorResult, error instanceof Error ? error.message : 'Factoring failed.', 'error');
+    setResultText(factorResult, error instanceof Error ? error.message : 'Factoring failed.', 'error');
   }
 });
 
