@@ -2,7 +2,6 @@ import { addCiphertexts, encrypt, multiplyByScalar, type PaillierPublicKey } fro
 
 export interface HospitalData {
   id: string;
-  privateCount: bigint;
   encryptedCount: bigint;
 }
 
@@ -22,7 +21,6 @@ export function simulatePrivateAggregation(
     const { ciphertext } = encrypt(privateCount, publicKey);
     return {
       id: `Hospital ${String.fromCharCode(65 + index)}`,
-      privateCount,
       encryptedCount: ciphertext,
     };
   });

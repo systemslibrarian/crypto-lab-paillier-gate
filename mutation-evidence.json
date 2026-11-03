@@ -1,0 +1,102 @@
+[
+  {
+    "name": "aggregation result leaks learner private count",
+    "sourceDiff": "diff --git a/src/aggregation.ts b/src/aggregation.ts\nindex ebc713b..56bf69b 100644\n--- a/src/aggregation.ts\n+++ b/src/aggregation.ts\n@@ -21,6 +21,7 @@ export function simulatePrivateAggregation(\n     const { ciphertext } = encrypt(privateCount, publicKey);\n     return {\n       id: `Hospital ${String.fromCharCode(65 + index)}`,\n+      privateCount,\n       encryptedCount: ciphertext,\n     };\n   });\n",
+    "baseline": "4b1640e35de1d02d13ea2dad392c0ab76ef4babba3c41ed3c30129ab13ea3212",
+    "mutant": "48961c27de482ef363a796ea04d1f1211ea5b0b37d586303aacb09a043cd6112",
+    "namedTest": "produces an encrypted total that decrypts to the sum",
+    "assertionFailure": true,
+    "retries": 0,
+    "restoredGreen": true
+  },
+  {
+    "name": "optional weights no longer default to one",
+    "sourceDiff": "diff --git a/src/input.ts b/src/input.ts\nindex a5da17b..06bf9ac 100644\n--- a/src/input.ts\n+++ b/src/input.ts\n@@ -55,7 +55,7 @@ export function parseBigIntList(\n }\n \n export function parseOptionalWeights(value: string, count: number): bigint[] {\n-  if (value.trim() === '') {\n+  if (value.trim() === '__never_blank__') {\n     return Array.from({ length: count }, () => 1n);\n   }\n \n",
+    "baseline": "4b1640e35de1d02d13ea2dad392c0ab76ef4babba3c41ed3c30129ab13ea3212",
+    "mutant": "b7b8f334d04d6f21f2ffe15140cb8cf435e09c0981e977c95d753e613450a1ab",
+    "namedTest": "defaults every omitted weight to one",
+    "assertionFailure": true,
+    "retries": 0,
+    "restoredGreen": true
+  },
+  {
+    "name": "decimal workload limit is bypassed",
+    "sourceDiff": "diff --git a/src/input.ts b/src/input.ts\nindex a5da17b..818bb33 100644\n--- a/src/input.ts\n+++ b/src/input.ts\n@@ -37,7 +37,7 @@ export function parseNonNegativeBigInt(\n     throw new Error(`${fieldName} must be a non-negative decimal integer.`);\n   }\n \n-  if (trimmed.length > maxDigits) {\n+  if (false && trimmed.length > maxDigits) {\n     throw new Error(`${fieldName} must be at most ${maxDigits} decimal digits.`);\n   }\n \n",
+    "baseline": "4b1640e35de1d02d13ea2dad392c0ab76ef4babba3c41ed3c30129ab13ea3212",
+    "mutant": "21ffb7c6d2280498ca4053c1736bd1bb3cbb921a52d78b68f1316c02a6b23834",
+    "namedTest": "rejects signs, non-decimal text, and oversized integers",
+    "assertionFailure": true,
+    "retries": 0,
+    "restoredGreen": true
+  },
+  {
+    "name": "ballot MAC omits the voter identity",
+    "sourceDiff": "diff --git a/src/ballots.ts b/src/ballots.ts\nindex 0b3f78d..64705a8 100644\n--- a/src/ballots.ts\n+++ b/src/ballots.ts\n@@ -44,7 +44,7 @@ function encodeBallot(voterId: string, ciphertext: bigint): Uint8Array<ArrayBuff\n     throw new Error('Ballot voterId must be non-empty and must not contain NUL.');\n   }\n \n-  return encoder.encode(`${BALLOT_DOMAIN}\\0${voterId}\\0${ciphertext.toString()}`);\n+  return encoder.encode(`${BALLOT_DOMAIN}\\0${ciphertext.toString()}`);\n }\n \n /** Fresh per-election MAC key held by the ballot box, never by the attacker. */\n",
+    "baseline": "4b1640e35de1d02d13ea2dad392c0ab76ef4babba3c41ed3c30129ab13ea3212",
+    "mutant": "c92c66709dd5f09c8715216aef38f1a948b035579be3ce1c542da5d45d02a5f2",
+    "namedTest": "binds the voter identity as well as the ciphertext",
+    "assertionFailure": true,
+    "retries": 0,
+    "restoredGreen": true
+  },
+  {
+    "name": "ballot verification accepts any well-formed tag",
+    "sourceDiff": "diff --git a/src/ballots.ts b/src/ballots.ts\nindex 0b3f78d..6328252 100644\n--- a/src/ballots.ts\n+++ b/src/ballots.ts\n@@ -102,7 +102,7 @@ export async function verifyBallot(ballot: SealedBallot, key: CryptoKey): Promis\n   }\n \n   try {\n-    return await crypto.subtle.verify(\n+    return signature.length === 32 || await crypto.subtle.verify(\n       'HMAC',\n       key,\n       signature,\n",
+    "baseline": "4b1640e35de1d02d13ea2dad392c0ab76ef4babba3c41ed3c30129ab13ea3212",
+    "mutant": "912f394ca4266098899b0fde361ef28d9b2050fe2cef3611aa7ab5b0fda86e58",
+    "namedTest": "treats malformed tags as invalid instead of comparing strings",
+    "assertionFailure": true,
+    "retries": 0,
+    "restoredGreen": true
+  },
+  {
+    "name": "ballot MAC key becomes extractable",
+    "sourceDiff": "diff --git a/src/ballots.ts b/src/ballots.ts\nindex 0b3f78d..86b7624 100644\n--- a/src/ballots.ts\n+++ b/src/ballots.ts\n@@ -49,7 +49,7 @@ function encodeBallot(voterId: string, ciphertext: bigint): Uint8Array<ArrayBuff\n \n /** Fresh per-election MAC key held by the ballot box, never by the attacker. */\n export async function generateBallotKey(): Promise<CryptoKey> {\n-  return crypto.subtle.generateKey({ name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);\n+  return crypto.subtle.generateKey({ name: 'HMAC', hash: 'SHA-256' }, true, ['sign', 'verify']);\n }\n \n /**\n",
+    "baseline": "4b1640e35de1d02d13ea2dad392c0ab76ef4babba3c41ed3c30129ab13ea3212",
+    "mutant": "3dc3785253ef162f7ca4461676589ecf15d7b422c96a0859a0a214ee58a780a3",
+    "namedTest": "keeps the ballot-box MAC key non-extractable",
+    "assertionFailure": true,
+    "retries": 0,
+    "restoredGreen": true
+  },
+  {
+    "name": "authenticated ballot box accepts a duplicate voter",
+    "sourceDiff": "diff --git a/src/ballots.ts b/src/ballots.ts\nindex 0b3f78d..8aed903 100644\n--- a/src/ballots.ts\n+++ b/src/ballots.ts\n@@ -203,7 +203,7 @@ export async function runBallotBox(\n     }\n \n     const authentic = await verifyBallot(ballot, key);\n-    const replayed = acceptedVoters.has(ballot.voterId);\n+    const replayed = false && acceptedVoters.has(ballot.voterId);\n \n     if (!authentic || replayed) {\n       rejected.push(ballot);\n",
+    "baseline": "4b1640e35de1d02d13ea2dad392c0ab76ef4babba3c41ed3c30129ab13ea3212",
+    "mutant": "dc4b1315983f2adb3784520b440aa7aa848f8ba664443c18624e5e31cd6b52dc",
+    "namedTest": "rejects a replayed voter identity under authentication",
+    "assertionFailure": true,
+    "retries": 0,
+    "restoredGreen": true
+  },
+  {
+    "name": "stale key epoch regains authority",
+    "sourceDiff": "diff --git a/src/session.ts b/src/session.ts\nindex d0550dd..3a4bb3b 100644\n--- a/src/session.ts\n+++ b/src/session.ts\n@@ -10,5 +10,5 @@ export function isCurrentKeySession(\n   currentEpoch: number,\n   currentN: bigint | null,\n ): boolean {\n-  return expectedEpoch === currentEpoch && expectedN === currentN;\n+  return (expectedEpoch === currentEpoch || true) && expectedN === currentN;\n }\n",
+    "baseline": "4b1640e35de1d02d13ea2dad392c0ab76ef4babba3c41ed3c30129ab13ea3212",
+    "mutant": "8704f170f7a00442140734b5282e7e595a07f5a371d85aa996d429fde2265b52",
+    "namedTest": "accepts only the epoch and modulus that launched the operation",
+    "assertionFailure": true,
+    "retries": 0,
+    "restoredGreen": true
+  },
+  {
+    "name": "modular wrap is labeled as the unreduced total",
+    "sourceDiff": "diff --git a/src/main.ts b/src/main.ts\nindex 5b4c86c..ee74ef8 100644\n--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1107,7 +1107,7 @@ aggregationForm.addEventListener('submit', (event) => {\n         `Raw plaintext sum Σxᵢ = <strong>${plainTotal.toString()}</strong>; expected modulo N = `\n           + `<strong>${reducedTotal.toString()}</strong>; ciphertext decrypts to `\n           + `<strong>${decryptedTotal.toString()}</strong> — ${totalMatches ? 'match' : 'mismatch'}.`\n-          + (totalWrapped ? ' The raw sum reached N, so this result wrapped and is not the unreduced total.' : ''),\n+          + (totalWrapped ? ' The raw sum reached N, so this result is a match to the unreduced total.' : ''),\n         `Raw weighted sum Σwᵢxᵢ = <strong>${plainWeighted.toString()}</strong>; expected modulo N = `\n           + `<strong>${reducedWeighted.toString()}</strong>; ciphertext decrypts to `\n           + `<strong>${decryptedWeighted.toString()}</strong> — ${weightedMatches ? 'match' : 'mismatch'}.`\n",
+    "baseline": "4b1640e35de1d02d13ea2dad392c0ab76ef4babba3c41ed3c30129ab13ea3212",
+    "mutant": "4568e774485d7bdb7e814f082fae022b83dd275b64750efddd9d3ce00aa2fe5c",
+    "namedTest": "aggregation distinguishes a modular match from the unreduced total",
+    "assertionFailure": true,
+    "retries": 0,
+    "restoredGreen": true
+  },
+  {
+    "name": "random ciphertext samples are called proof of semantic security",
+    "sourceDiff": "diff --git a/src/main.ts b/src/main.ts\nindex 5b4c86c..1b5f9f7 100644\n--- a/src/main.ts\n+++ b/src/main.ts\n@@ -230,7 +230,7 @@ app.innerHTML = `\n             without knowing <code>m</code>. The ciphertexts differ completely, yet every one decrypts back to the same\n             <code id=\"semantic-plaintext\">m</code>. Each row below is decrypted with the private key as it is added, and\n             the value shown is that decryption — not a repeat of what you typed. That visible gap between identical\n-            input and different output illustrates the randomness semantic security requires; it is not a proof of the\n+            input and different output illustrates the randomness semantic security requires; it is proof of the\n             underlying decisional composite residuosity assumption.\n           </p>\n           <ol id=\"semantic-list\" class=\"semantic-list\" aria-label=\"Ciphertexts of the same plaintext\"></ol>\n",
+    "baseline": "4b1640e35de1d02d13ea2dad392c0ab76ef4babba3c41ed3c30129ab13ea3212",
+    "mutant": "3e4f5e1acbffb0f8cfb13fb8688b8ff1c23156779d4c062742d910276bad83d1",
+    "namedTest": "the randomness exhibit does not claim that samples prove semantic security",
+    "assertionFailure": true,
+    "retries": 0,
+    "restoredGreen": true
+  }
+]
