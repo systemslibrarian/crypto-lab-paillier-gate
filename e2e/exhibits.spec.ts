@@ -579,4 +579,14 @@ test('the give-up estimate agrees with the prime size it names', async ({ page }
   expect(steps).toBe(Math.round(1.18 * Math.sqrt(2 ** primeBits)));
   // And it is not silently reading the modulus instead.
   expect(primeBits).not.toBe(Math.floor(159 / 2));
+
+  // The same box used to credit rho's sqrt(p) with "the entire argument for
+  // 2048-bit moduli, at which sqrt(p) is around 2^512". Modulus sizes are set
+  // by the number field sieve, not by rho: NIST rates a 2048-bit modulus at
+  // 112 bits of security (SP 800-57 Part 1 Rev. 5, Table 2), so 2^512 is not
+  // what a 2048-bit key buys. Pinned so the sieve cannot be dropped again.
+  expect(text).toContain('number field sieve');
+  expect(text).toContain('112');
+  expect(text).toContain('SP 800-57 Part 1 Rev. 5, Table 2');
+  expect(text).not.toContain('entire argument for 2048-bit moduli');
 });

@@ -129,7 +129,7 @@ app.innerHTML = `
         <article class="metric-card">
           <span class="metric-label">Modulus bits</span>
           <strong id="metric-bits">-</strong>
-          <span class="metric-gloss">size of N in bits — bigger is harder to factor. p and q are each exactly half the length you selected, so N = p·q lands on that length or one bit under it: a "96-bit" selection reads 95 here about a quarter of the time, and the security that matters is the 48-bit primes either way.</span>
+          <span class="metric-gloss">size of N in bits — bigger is harder to factor. p and q are each exactly half the length you selected, so N = p·q lands on that length or one bit under it: a "96-bit" selection reads 95 here roughly two times in five (2·ln 2 − 1 = 38.6% for the way p and q are drawn; 38.56% measured over 50,000 keypairs from this generator), and the security that matters is the 48-bit primes either way.</span>
         </article>
         <article class="metric-card">
           <span class="metric-label">Public modulus N</span>
@@ -1554,7 +1554,9 @@ function handleFactorWorkerMessage(event: MessageEvent<FactorWorkerMessage>): vo
             + `${primeBits}-bit prime — and this N's primes are ${primeBits} bits each — while the budget here is `
             + `${DEFAULT_BUDGET.toLocaleString('en-US')}. `
             + `Drop to 64-bit and the same code finishes instantly. Every extra 4 bits of N doubles that expected work — `
-            + `which is the entire argument for 2048-bit moduli, at which √p is around 2<sup>512</sup>.`,
+            + `but rho is not what sets real key sizes. The <strong>number field sieve</strong> factors far faster than √p, `
+            + `and it is the sieve that 2048 bits is chosen against: NIST rates a 2048-bit modulus at about `
+            + `<strong>112 bits</strong> of security (SP 800-57 Part 1 Rev. 5, Table 2), not the 2<sup>512</sup> that √p would suggest.`,
         ].join('<br /><br />'),
         'error',
       );

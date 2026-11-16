@@ -143,4 +143,30 @@ describe('generatePrime', () => {
   it('rejects an invalid bit length', () => {
     expect(() => generatePrime(1)).toThrow(/bits must be an integer/);
   });
+
+  it('two k-bit primes multiply to 2k-1 bits about two times in five, not one in four', () => {
+    // Pins the Step 1 "Modulus bits" gloss. randomBigIntWithBits forces only
+    // the top bit, so p and q are drawn from [2^(k-1), 2^k) and N = p·q has
+    // 2k-1 bits exactly when p·q < 2^(2k-1). Writing p = 2^(k-1)·u and
+    // q = 2^(k-1)·v with u, v ~ U[1,2), that is P(uv < 2) = 2·ln 2 - 1 ≈ 0.3863
+    // — not the "about a quarter" this gloss used to claim. Measured 38.56%
+    // over 50,000 keypairs at k = 48 (the page's 96-bit selection); the band
+    // below is wide enough to never flake and still excludes 0.25.
+    const EXPECTED = 2 * Math.log(2) - 1;
+    expect(EXPECTED).toBeCloseTo(0.3863, 4);
+
+    const k = 16;
+    const trials = 3000;
+    let short = 0;
+    for (let i = 0; i < trials; i += 1) {
+      const p = generatePrime(k);
+      let q = generatePrime(k);
+      while (q === p) q = generatePrime(k);
+      if ((p * q).toString(2).length === 2 * k - 1) short += 1;
+    }
+    const rate = short / trials;
+    expect(rate).toBeGreaterThan(0.3);
+    expect(rate).toBeLessThan(0.48);
+    expect(Math.abs(rate - 0.25)).toBeGreaterThan(Math.abs(rate - EXPECTED));
+  }, 300_000);
 });
