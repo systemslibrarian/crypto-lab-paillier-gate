@@ -10,6 +10,14 @@ export interface Vote {
   encryptedVote: bigint;
 }
 
+function hospitalLabel(index: number): string {
+  let letters = '';
+  for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+    letters = String.fromCharCode(65 + (n - 1) % 26) + letters;
+  }
+  return `Hospital ${letters}`;
+}
+
 export function simulatePrivateAggregation(
   privateCounts: bigint[],
   publicKey: PaillierPublicKey,
@@ -20,7 +28,7 @@ export function simulatePrivateAggregation(
   const hospitals = privateCounts.map((privateCount, index) => {
     const { ciphertext } = encrypt(privateCount, publicKey);
     return {
-      id: `Hospital ${String.fromCharCode(65 + index)}`,
+      id: hospitalLabel(index),
       encryptedCount: ciphertext,
     };
   });

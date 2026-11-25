@@ -173,7 +173,7 @@ app.innerHTML = `
           </p>
           <p>
             A plaintext <code>m</code> is encrypted as <code>c = gᵐ · rᴺ mod N²</code> using fresh randomness
-            <code>r</code>, so the same message yields a different ciphertext every time. Step 2 illustrates that
+            <code>r</code>, so encryptions of the same message can differ. Independent draws can also repeat. Step 2 illustrates that
             required randomness; the scheme's semantic-security claim depends on the decisional composite residuosity
             assumption, and a few sample ciphertexts cannot prove it. Decryption recovers <code>m</code> with the
             private values <code>λ = lcm(p−1, q−1)</code> and <code>μ = λ⁻¹ mod N</code> via
@@ -223,11 +223,11 @@ app.innerHTML = `
         </div>
 
         <div class="semantic-demo" id="semantic-demo" hidden>
-          <p class="semantic-demo-title">Same message, different ciphertexts</p>
+          <p class="semantic-demo-title">Repeated encryption of one message</p>
           <p class="semantic-demo-copy">
             Press <em>Encrypt again</em> to stack more encryptions of the identical plaintext, or
             <em>Re-randomize this ciphertext</em> to refresh an existing ciphertext with a new <code>rᴺ</code> factor
-            without knowing <code>m</code>. The ciphertexts differ completely, yet every one decrypts back to the same
+            without knowing <code>m</code>. The ciphertexts can differ, or repeat if the same randomizer is drawn. Each row should decrypt to
             <code id="semantic-plaintext">m</code>. Each row below is decrypted with the private key as it is added, and
             the value shown is that decryption — not a repeat of what you typed. That visible gap between identical
             input and different output illustrates the randomness semantic security requires; it is not a proof of the
@@ -553,6 +553,8 @@ let keyEpoch = 0;
 // one the demo re-encrypts behind their back.
 let lastEncryption: { message: bigint; ciphertext: bigint } | null = null;
 let semanticMessage: bigint | null = null;
+const distinctCiphertexts = new Set<bigint>();
+let matchingDecryptions = 0;
 
 // Ciphertexts sitting in Step 3's A/B slots. `null` means "encrypt this input
 // fresh on submit"; a bigint means "reuse this exact ciphertext the learner
@@ -724,6 +726,8 @@ keyForm.addEventListener('submit', (event) => {
 
 function resetSemanticDemo(): void {
   semanticMessage = null;
+  distinctCiphertexts.clear();
+  matchingDecryptions = 0;
   semanticList.innerHTML = '';
   semanticDemo.hidden = true;
 }
@@ -755,7 +759,9 @@ function addSemanticRow(ciphertext: bigint, origin: 'encrypted' | 're-randomized
   let recovered: string;
 
   try {
-    recovered = decrypt(ciphertext, keyPair).toString();
+    const plaintext = decrypt(ciphertext, keyPair);
+    recovered = plaintext.toString();
+    if (plaintext === semanticMessage) matchingDecryptions += 1;
   } catch (error) {
     recovered = error instanceof Error ? `did not decrypt (${error.message})` : 'did not decrypt';
   }
@@ -763,6 +769,14 @@ function addSemanticRow(ciphertext: bigint, origin: 'encrypted' | 're-randomized
   note.textContent = ` ${origin} · decrypts to ${recovered}`;
   item.appendChild(note);
   semanticList.appendChild(item);
+  distinctCiphertexts.add(ciphertext);
+}
+
+function sampleSummary(): string {
+  const count = semanticList.children.length;
+  const distinct = distinctCiphertexts.size;
+  return `${count} ${count === 1 ? 'sample' : 'samples'}, ${distinct} distinct ${distinct === 1 ? 'ciphertext' : 'ciphertexts'}. `
+    + `${matchingDecryptions} of ${count} decryptions matched plaintext ${semanticMessage}.`;
 }
 
 function doEncrypt(message: bigint, isRepeat: boolean): void {
@@ -780,21 +794,17 @@ function doEncrypt(message: bigint, isRepeat: boolean): void {
 
   // Maintain the semantic-security stack. Changing the message starts a new one.
   if (!isRepeat || semanticMessage !== message) {
+    resetSemanticDemo();
     semanticMessage = message;
-    semanticList.innerHTML = '';
   }
   semanticPlaintext.textContent = message.toString();
   addSemanticRow(encrypted.ciphertext, 'encrypted');
   semanticDemo.hidden = false;
 
-  const count = semanticList.children.length;
   setResultBox(
     decryptResult,
-    `Ciphertext generated for plaintext <strong>${message.toString()}</strong>. `
-      + (count > 1
-        ? `You now have <strong>${count}</strong> different ciphertexts of the same message stacked below — all decrypt to ${message.toString()}.`
-        : 'Decrypt it below, or press <em>Encrypt again</em> to watch fresh randomness produce a different ciphertext.'),
-    'success',
+    `Ciphertext generated for plaintext <strong>${message.toString()}</strong>. ${sampleSummary()}`,
+    matchingDecryptions === semanticList.children.length ? 'success' : 'error',
   );
   updateControlState();
 }
@@ -848,11 +858,11 @@ rerandomizeButton.addEventListener('click', () => {
 
     setResultBox(
       decryptResult,
-      changed
+      (changed
         ? 'Re-randomized with the <strong>public key only</strong>: the ciphertext changed, and the row added below '
           + 'shows what it decrypts to now.'
-        : 'Re-randomization returned the same ciphertext — the fresh factor happened to be 1. Press it again.',
-      changed ? 'success' : 'error',
+        : 'Re-randomization returned the same ciphertext. The fresh factor happened to be 1.') + ' ' + sampleSummary(),
+      matchingDecryptions === semanticList.children.length ? 'success' : 'error',
     );
     updateControlState();
   } catch (error) {
@@ -1052,9 +1062,20 @@ overflowPresetButton.addEventListener('click', () => {
   }
 });
 
+// An edited input retires both the decrypted totals and the ciphertext rows.
+let aggregationInput: { counts: string; weights: string } | null = null;
+function retireEditedAggregation(): void {
+  if (!aggregationInput || (aggregationInput.counts === countsInput.value && aggregationInput.weights === weightsInput.value)) return;
+  resetAggregation();
+  setResultText(aggregationResult, 'Inputs changed. Aggregate the current counts and weights to see their totals.', 'neutral');
+}
+countsInput.addEventListener('input', retireEditedAggregation);
+weightsInput.addEventListener('input', retireEditedAggregation);
+
 aggregationForm.addEventListener('submit', (event) => {
   event.preventDefault();
 
+  resetAggregation();
   try {
     const keyPair = requireKeyPair();
     const counts = parseBigIntList(countsInput.value, 'Counts');
@@ -1118,8 +1139,10 @@ aggregationForm.addEventListener('submit', (event) => {
       totalMatches && weightedMatches && !totalWrapped && !weightedWrapped ? 'success' : 'error',
     );
   } catch (error) {
+    resetAggregation();
     setResultText(aggregationResult, error instanceof Error ? error.message : 'Aggregation failed.', 'error');
   }
+  aggregationInput = { counts: countsInput.value, weights: weightsInput.value };
 });
 
 /**
@@ -1135,6 +1158,7 @@ aggregationForm.addEventListener('submit', (event) => {
  * new key did not clear.
  */
 function resetAggregation(): void {
+  aggregationInput = null;
   aggregationTable.hidden = true;
   aggregationRows.innerHTML = '';
 }

@@ -426,6 +426,61 @@ test('a new key immediately revokes an in-flight factoring result', async ({ pag
   await expect(page.locator('#factor-key')).toHaveAttribute('aria-busy', 'false');
 });
 
+test('encryption reports the distinct ciphertexts and matching decryptions actually observed', async ({ page }) => {
+  await open(page);
+  await generateKey(page, '64');
+  // Repeat a legal random draw, then allow native draws again in this browser.
+  await page.evaluate(() => Object.defineProperty(crypto, 'getRandomValues', {
+    configurable: true, value: (array: Uint8Array) => array.fill(0),
+  }));
+  await page.locator('#encrypt-form button[type="submit"]').click();
+  await page.locator('#encrypt-again').click();
+  const outputs = page.locator('#semantic-list code');
+  const pair = await outputs.allTextContents();
+  expect(pair).toHaveLength(2);
+  expect(pair[1]).toBe(pair[0]);
+  const result = page.locator('#decrypt-result');
+  await expect(result).toContainText('2 samples, 1 distinct ciphertext. 2 of 2 decryptions matched plaintext 42.');
+  await page.evaluate(() => Reflect.deleteProperty(crypto, 'getRandomValues'));
+  await page.locator('#encrypt-again').click();
+  const distinct = new Set(await outputs.allTextContents()).size;
+  await expect(result).toContainText(`3 samples, ${distinct} distinct ciphertext`);
+  await expect(result).toContainText('3 of 3 decryptions matched plaintext 42.');
+  await page.locator('#encrypt-form button[type="submit"]').click();
+  await expect(result).toContainText('1 sample, 1 distinct ciphertext. 1 of 1 decryptions matched');
+});
+
+test('edited hospital inputs retire the old totals and support all fifty labelled contributions', async ({ page }) => {
+  await open(page);
+  await generateKey(page, '64');
+  const run = page.locator('#aggregation-form button[type="submit"]');
+  const result = page.locator('#aggregation-result');
+  const table = page.locator('#aggregation-table');
+  await run.click();
+  await expect(result).toContainText('ciphertext decrypts to 293 — match');
+  await page.locator('#weights-input').dispatchEvent('input');
+  await expect(table).toBeVisible();
+  await page.fill('#weights-input', '1,2');
+  await expect(table).toBeHidden();
+  await expect(result).not.toContainText('293');
+  await run.click();
+  await expect(result).toContainText('exactly 5');
+  await expect(page.locator('#aggregation-rows tr')).toHaveCount(0);
+  await page.fill('#weights-input', '');
+  const counts = Array.from({ length: 50 }, (_, i) => i + 1);
+  await page.fill('#counts-input', counts.join(','));
+  await run.click();
+  const labels = await page.locator('#aggregation-rows tr td:first-child').allTextContents();
+  expect(labels).toHaveLength(50);
+  expect(labels.slice(25, 28)).toEqual(['Hospital Z', 'Hospital AA', 'Hospital AB']);
+  expect(labels[49]).toBe('Hospital AX');
+  await expect(result).toContainText('ciphertext decrypts to 1275 — match');
+  await page.fill('#counts-input', '0');
+  await expect(table).toBeHidden();
+  await run.click();
+  await expect(result).toContainText('ciphertext decrypts to 0 — match');
+});
+
 test('weighted aggregation reports both homomorphisms against the plaintext arithmetic', async ({ page }) => {
   await open(page);
   await generateKey(page, '96');
