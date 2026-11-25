@@ -63,8 +63,8 @@ const cases = [
   [
     'aggregation result leaks learner private count',
     'src/aggregation.ts',
-    '      id: `Hospital ${String.fromCharCode(65 + index)}`,\n      encryptedCount: ciphertext,',
-    '      id: `Hospital ${String.fromCharCode(65 + index)}`,\n      privateCount,\n      encryptedCount: ciphertext,',
+    '      id: hospitalLabel(index),\n      encryptedCount: ciphertext,',
+    '      id: hospitalLabel(index),\n      privateCount,\n      encryptedCount: ciphertext,',
     unit('tests/aggregation.test.ts', 'produces an encrypted total that decrypts to the sum'),
   ],
   [
